@@ -9,7 +9,7 @@ When deploying an admin node in production mode, you will want to be able to ins
 As of Dec, 2014, the provisioner knows how to install the following operating systems from the following ISO images:
 
  * `ubuntu-12.04`: `ubuntu-12.04.4-server-amd64.iso`
- * `ubuntu-14.04`: `ubuntu-14.04.1-server-amd64.iso`
+ * `ubuntu-14.04`: `ubuntu-14.04.1-server-amd64.iso` ** Ubuntu 14.04-1 is no longer available for download.  Download ubuntu -14.04.2-server-amd64.iso and rename it to ubuntu-14.04.1-server-amd64.iso 
  * `centos-6.6`: `CentOS-6.6-x86_64-bin-DVD1.iso`
  * `centos-7.1.1503`: `CentOS-7-x86_64-DVD-1503.iso`
  * `redhat-6.5`: `RHEL6.5-20131111.0-Server-x86_64-DVD1.iso`

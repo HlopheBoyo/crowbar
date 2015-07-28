@@ -13,14 +13,22 @@
 # limitations under the License.
 
 class NetworkRange < ActiveRecord::Base
-  
+
+  audited
+
+  after_commit :on_change_hooks
+
   validate :sanity_check_range
-  
+
   belongs_to  :network
   has_many    :network_allocations,   :dependent => :destroy
   has_many    :nodes,                 :through=>:network_allocations
 
   alias_attribute :allocations,       :network_allocations
+
+  def as_json(*args)
+    super(*args).merge({"first" => first.to_s, "last" =>  last.to_s})
+  end
 
   def first
     IP.coerce(read_attribute("first"))
@@ -56,30 +64,45 @@ class NetworkRange < ActiveRecord::Base
 
   def use_vlan
     res = read_attribute("use_vlan")
-    network.use_vlan if res.nil?
+    res = network.use_vlan if res.nil?
+    res
   end
 
   def use_bridge
     res = read_attribute("use_bridge")
-    network.use_bridge if res.nil?
+    res = network.use_bridge if res.nil?
+    res
   end
 
   def use_team
     res = read_attribute("use_team")
-    network.use_team if res.nil?
+    res = network.use_team if res.nil?
+    res
   end
 
   def === (other)
     addr = IP.coerce(other)
-    (first <= addr) && (addr <= last) 
+    (first <= addr) && (addr <= last)
   end
 
   def allocate(node, suggestion = nil)
-    res = NetworkAllocation.where(:node_id => node.id, :network_range_id => self.id).first
+    # Fixing the node role if allocation is present by node role is not.
+    res = NetworkAllocation.find_by(:node_id => node.id, :network_range_id => self.id)
     return res if res
+    unless suggestion
+      attr_name = "hint-#{network.name}-"
+      if first.v4?
+        attr_name << "v4addr"
+      else
+        attr_name << "v6addr"
+      end
+      suggestion = Attrib.get(attr_name,node)
+    end
+    suggestion ||= node.auto_v6_address(network) if first.v6?
     begin
       Rails.logger.info("NetworkRange: allocating address from #{fullname} for #{node.name} with suggestion #{suggestion}")
       NetworkAllocation.locked_transaction do
+        # Use suggestion if it fits
         if suggestion
           suggestion = IP.coerce(suggestion)
           if (self === suggestion) &&
@@ -90,6 +113,30 @@ class NetworkRange < ActiveRecord::Base
                                             :address => suggestion)
           end
         end
+        # Use octet aligned suggestion if admin network exists
+        unless res
+          my_na = nil
+          NetworkAllocation.node_cat(node, "admin").each do |na|
+            next unless na.address.class == self.first.class
+            next unless na.network.group == self.network.group
+            my_na = na
+            break
+          end
+
+          # If we have an admin network for this group, use its host part as a suggestion
+          if my_na
+            suggestion = self.first.with_host(my_na.address.host)
+            if (self === suggestion) &&
+                (NetworkAllocation.where(:address => suggestion.to_s).count == 0)
+              res = NetworkAllocation.create!(:network_range_id => self.id,
+                                              :network_id => network_id,
+                                              :node_id => node.id,
+                                              :address => suggestion)
+            end
+          end
+        end
+
+        # Still no address, try and find an unused one.
         unless res
           addr = nil
           allocated = network_allocations.all.map{|a|a.address}.sort{|a,b| b <=> a}
@@ -119,46 +166,70 @@ class NetworkRange < ActiveRecord::Base
 
   def sanity_check_range
     unless network
-      errors.add("NetworkRange does not have an associated network!")
+      errors.add(:network, "NetworkRange does not have an associated network!")
+    else
+      # Check conduit, vlan, team, and bond sanity
+      Network.check_sanity(self).each do |err|
+        errors.add(err[0], "NetworkRange #{fullname}: #{err[1]}")
+      end
     end
 
-    # Check conduit, vlan, team, and bond sanity
-    Network.check_sanity(self).each do |err|
-      errors.add("NetworkRange #{fullname}: #{err}")
-    end
+    errors.add(:network, "NetworkRange #{fullname}: must have a non-configure parent network with specifying overlap") if (overlap and network and network.configure)
 
-    unless name
-      errors.add("NetworkRange must have a name")
+    unless first.subnet == last.subnet
+      errors.add(:first, "NetworkRange #{fullname}: #{first.to_s} and #{last.to_s} must be of the same netmask")
     end
-
     unless first.class == last.class
-      errors.add("NetworkRange #{fullname}: #{first.inspect} and #{last.inspect} must be of the same type")
+      errors.add(:first, "NetworkRange #{fullname}: #{first.to_s} and #{last.to_s} must be of the same type")
     end
     unless first.network == last.network
-      errors.add("NetworkRange #{fullname}: #{first.to_s} and #{last.to_s} must be in the same subnet")
+      errors.add(:first, "NetworkRange #{fullname}: #{first.to_s} and #{last.to_s} must be in the same subnet")
     end
     if first.network == first
-      errors.add("NetworkRange #{fullname}: #{first} cannot be a subnet address")
+      errors.add(:first, "NetworkRange #{fullname}: #{first} cannot be a subnet address")
     end
     if last.broadcast == last
-      errors.add("NetworkRange #{fullname}: #{last} cannot be a broadcast address")
+      errors.add(:last, "NetworkRange #{fullname}: #{last} cannot be a broadcast address")
+    end
+    if first.broadcast == first
+      errors.add(:first, "NetworkRange #{fullname}: #{first} cannot be a broadcast address")
+    end
+    if last.network == last
+      errors.add(:last, "NetworkRange #{fullname}: #{last} cannot be a subnet address")
     end
 
     # Now, verify that this range does not overlap with any other range
 
     NetworkRange.transaction do
       NetworkRange.all.each do |other|
-        if other === first
-          errors.add("NetworkRange #{fullname}: first address #{first.to_s} overlaps with range #{other.fullname}")
+        next if other.id == id
+
+        if !other.overlap and !overlap && (other === first or self === other.first)
+          errors.add(:first, "NetworkRange #{fullname}: first address #{first.to_s} overlaps with range #{other.fullname}")
         end
-        if other === last
-          errors.add("NetworkRange #{fullname}: last address #{last.to_s} overlaps with range #{other.fullname}")
+        if !other.overlap and !overlap and (other === last or self === other.last)
+          errors.add(:last, "NetworkRange #{fullname}: last address #{last.to_s} overlaps with range #{other.fullname}")
         end
-        unless Network.check_conduit_sanity(conduit, other.conduit)
-          errors.add("NetworkRange #{fullname}: Conduit mapping overlaps with network range #{other.fullname}")
+        if network && !Network.check_conduit_sanity(conduit, other.conduit)
+          errors.add(:conduit, "NetworkRange #{fullname}: Conduit mapping overlaps with network range #{other.fullname}")
         end
       end
     end
   end
+
+  # Call the on_network_change hooks.
+  def on_change_hooks
+    # do the low cohorts last
+    Rails.logger.info("NetworkRange: calling all role on_network_change hooks for #{network.name}")
+    Role.all_cohorts_desc.each do |r|
+      begin
+        Rails.logger.info("NetworkRange: Calling #{r.name} on_network_change for #{self.network.name}")
+        r.on_network_change(self.network)
+      rescue Exception => e
+        Rails.logger.error "NetworkRange #{self.name} attempting to change role #{r.name} failed with #{e.message}"
+      end
+    end
+  end
+
 
 end

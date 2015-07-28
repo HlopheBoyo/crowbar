@@ -13,16 +13,35 @@
 # limitations under the License.
 #
 
+barclamp:
+  name: "logging"
+  parent: "core"
+  display: "Logging"
+  description: "Log Centralization and Management"
+  version: "2.3"
+  source_url: "https://github.com/opencrowbar/core"
+  license: "Apache 2"
+  license_url: "https://github.com/opencrowbar/core/blob/develop/doc/licenses/README.md"
+
+
+
 roles:
   - name: logging-server
     jig: chef
     requires:
       - dns-client
-      - network-admin
     attribs:
       - name: logging_server
         description: "The IP addresses of the server that should get all logging output."
         map: 'crowbar/logging/servers'
+      - name: logging-external_servers
+        description: 'The IP addresses if the external log server we should ship logs to'
+        map: 'crowbar/logging/external_servers'
+        default: []
+        schema:
+          type: seq
+          sequence:
+            - type: str
   - name: logging-client
     jig: chef
     flags:
@@ -30,6 +49,5 @@ roles:
     requires:
       - dns-client
       - logging-server
-      - network-admin
     wants-attribs:
       - logging_server

@@ -17,6 +17,8 @@ require 'json'
 
 class DeploymentRole < ActiveRecord::Base
 
+  audited
+
   after_create :role_create_hook
   before_destroy  :role_delete_hook
 
@@ -24,6 +26,8 @@ class DeploymentRole < ActiveRecord::Base
   belongs_to :role
   has_one    :barclamp, :through => :role
   has_many   :attribs, :through => :role
+
+  scope  :by_name,      -> (n)   { joins(:role).where('roles.name' => n) }
 
   # convenience methods
 
@@ -36,14 +40,24 @@ class DeploymentRole < ActiveRecord::Base
   end
 
   def data
-    deployment.proposed? ? proposed_data : committed_data
+    proposed_data || committed_data
   end
 
   def data=(val)
     DeploymentRole.transaction do
-      raise "Cannot edit deployment_role data when deployment is not proposed!" unless deployment.proposed?
+      # We can always update the data, as it will just kick the
+      # deplotment_role back to Proposed.  Ongoing operations will
+      # continue to use the previously committed data.
       update!(proposed_data: val)
     end
+  end
+
+  def noderoles
+    NodeRole.with_role(role).in_deployment(deployment)
+  end
+
+  def nodes
+    noderoles.map{|nr|nr.node}
   end
 
   def committed?
@@ -58,13 +72,15 @@ class DeploymentRole < ActiveRecord::Base
     return if committed?
     DeploymentRole.transaction do
       if committed_data != proposed_data
-        committed_data = proposed_data
-        # Have any runnable noderoles that use this deployment role rerun.
-        deployment.node_roles.where(role_id: role.id).each do |nr|
-          nr.todo! if nr.runnable?
+        attribs.each do |attr|
+          next if attr.get(self,:all,false) == attr.get(self,:all, true)
+          noderoles.each do |nr|
+            attr.poke(nr)
+          end
         end
+        update!(committed_data: proposed_data)
       end
-      self[:proposed_data] = nil
+      update!(proposed_data: nil)
       save!
     end
   end
@@ -74,13 +90,26 @@ class DeploymentRole < ActiveRecord::Base
     save!
   end
 
-  def all_data
-    role.template.deep_merge(self.committed_data).deep_merge(self.wall)
+  def all_committed_data
+    role.template.deep_merge(self.wall).deep_merge(self.committed_data)
+  end
+
+  def all_data(only_committed = false)
+    res = all_committed_data
+    res.deep_merge(proposed_data) if proposed_data && !only_committed
+    res
+  end
+
+  def note_update(val)
+    transaction do
+      self.notes = self.notes.deep_merge(val)
+      save!
+    end
   end
 
   def data_update(val)
     DeploymentRole.transaction do
-      update!(proposed_data: proposed_data.deep_merge(val))
+      update!(proposed_data: data.deep_merge(val))
     end
   end
 
@@ -97,6 +126,7 @@ class DeploymentRole < ActiveRecord::Base
   end
 
   def role_delete_hook
+    return false unless noderoles.count == 0
     role.on_deployment_delete(self)
   end
 

@@ -17,11 +17,25 @@ class NodesController < ApplicationController
 
   # API GET /crowbar/v2/nodes
   # UI GET /dashboard
+  def match
+    attrs = Node.attribute_names.map{|a|a.to_sym}
+    objs = Node.where(params.permit(attrs))
+    respond_to do |format|
+      format.html {}
+      format.json { render api_index Node, objs }
+    end
+  end
+
   def index
-    @list = if params.has_key? :group_id
+    @list = case
+            when params.has_key?(:group_id)
               Group.find_key(params[:group_id]).nodes
-            elsif params.has_key? :deployment_id
+            when params.has_key?(:deployment_id)
               Deployment.find_key(params[:deployment_id]).nodes
+            when params.has_key?(:role_id)
+              Role.find_key(params[:role_id]).nodes
+            when params.has_key?(:deployment_role_id)
+              DeploymentRole.find_key(params[:deployment_role_id]).nodes
             else
               Node.all
             end
@@ -30,7 +44,7 @@ class NodesController < ApplicationController
       format.json { render api_index Node, @list }
     end
   end
-  
+
   # API /api/status/nodes(/:id)
   def status
     nodes = if params[:id]
@@ -72,20 +86,48 @@ class NodesController < ApplicationController
   def addresses
     nodename = params[:node_id]
     @node = nodename == "admin" ?  Node.admin.where(:available => true).first : Node.find_key(nodename)
-    params.require(:network)
-    @net = Network.find_key(params[:network])
-    res = {"node" => @node.name,
-      "network" => @net.name,
-      "addresses" => @net.node_allocations(@node).map{|a|a.to_s}
-    }
-    render :json => res, :content_type=>cb_content_type(:addresses, "object")
+    if params[:network]
+      @net = Network.find_key(params[:network])
+      res = {
+        "node" => @node.name,
+        "network" => @net.name,
+        "category" => @net.category,
+        "addresses" => @net.node_allocations(@node).map{|a|a.to_s}
+      }
+      render :json => res, :content_type=>cb_content_type(:addresses, "object")
+    else
+      res = []
+
+      if params[:category]
+        nets = Network.in_category(params[:category])
+      else
+        nets = Network.all
+      end
+
+      nets.each do |n|
+        ips = n.node_allocations(@node)
+        next if ips.empty?
+
+        res << {
+            "node" => @node.name,
+            "network" => n.name,
+            "category" => n.category,
+            "addresses" => ips.map{|a|a.to_s}
+        }
+      end
+
+      render :json => res, :content_type=>cb_content_type(:addresses, "array")
+    end
   end
 
   # RESTful DELETE of the node resource
   def destroy
     @node = Node.find_key(params[:id] || params[:name])
     @node.destroy
-    render api_delete @node
+    respond_to do |format|
+      format.html { redirect_to deployment_path(@node.deployment_id) }
+      format.json { render api_delete @node }
+    end
   end
 
   def power
@@ -96,7 +138,7 @@ class NodesController < ApplicationController
       if @node.power.include? @poweraction
         result = @node.power.send(@poweraction) rescue nil
         # special case for development
-        if result.nil? 
+        if result.nil?
           render api_not_implemented(@poweraction, "see logs for internal error") unless Rails.env.development?
           result = "development faked"
         end
@@ -105,9 +147,9 @@ class NodesController < ApplicationController
         render api_not_implemented @node, @poweraction, @node.power.keys
       end
     elsif request.get?
-      render api_array @node.power
+      render api_array @node.power.keys
     end
-      
+
   end
 
   def debug
@@ -125,7 +167,7 @@ class NodesController < ApplicationController
   def propose
     node_action :propose!
   end
-  
+
   def commit
     node_action :commit!
   end
@@ -136,9 +178,9 @@ class NodesController < ApplicationController
     params[:deployment_id] ||= Deployment.system
     params.require(:name)
     params.require(:deployment_id)
+    default_net = nil
     Node.transaction do
       @node = Node.create!(params.permit(:name,
-                                         :alias,
                                          :description,
                                          :admin,
                                          :deployment_id,
@@ -149,21 +191,27 @@ class NodesController < ApplicationController
                                          :bootenv))
       # Keep suport for mac and ip hints in short form around for legacy Sledgehammer purposes
       if params[:ip]
-        @node.attribs.find_by!(name: "hint-admin-v4addr").set(@node,params[:ip])
-      end
-      if params[:mac]
-        @node.attribs.find_by!(name: "hint-admin-macs").set(@node,[params[:mac]])
+        default_net = Network.lookup_network(params[:ip]) ||
+                      Network.find_by_name("unmanaged")
+        Attrib.set("hint-#{default_net.name}-v4addr",@node,params[:ip]) if default_net
+        Attrib.set("hint-admin-macs", @node, [params[:mac]]) if params[:mac]
       end
     end
+    default_net.make_node_role(@node) if default_net
     render api_show @node
   end
 
   def update
-    @node = Node.find_key params[:id]
-    # sometimes we pass in a nested set of parameters
-    params[:node_deployment].each { |k,v| params[k] = v } if params.has_key? :node_deployment
-    params[:deployment_id] = Deployment.find_key(params[:deployment]).id if params.has_key? :deployment
-    @node.update_attributes!(params.permit(:alias,
+    Node.transaction do
+      @node = Node.find_key(params[:id]).lock!
+      # sometimes we pass in a nested set of parameters
+      params[:node_deployment].each { |k,v| params[k] = v } if params.has_key? :node_deployment
+      params[:deployment_id] = Deployment.find_key(params[:deployment]).id if params.has_key? :deployment
+      if params.has_key?(:deployment_id) && params.has_key?(:old_deployment_id)
+        old_deployment = Deployment.find_key(params[:old_deployment_id])
+        raise "Node is not in old deployment #{params[:old_deployment_id]}" unless @node.deployment == old_deployment
+      end
+      @node.update_attributes!(params.permit(:name,
                                              :description,
                                              :target_role_id,
                                              :deployment_id,
@@ -171,6 +219,7 @@ class NodesController < ApplicationController
                                              :available,
                                              :alive,
                                              :bootenv))
+    end
     render api_show @node
   end
 

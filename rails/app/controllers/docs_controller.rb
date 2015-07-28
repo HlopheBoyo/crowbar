@@ -34,8 +34,10 @@ class DocsController < ApplicationController
 
   def index
     if params.has_key?(:rebuild)
-        Doc.delete_all 
-        Doc.gen_doc_index
+      Doc.delete_all 
+      Doc.gen_doc_index
+    else
+      Doc.gen_doc_index if Doc.count == 0
     end
     @top_index = []
     # change order

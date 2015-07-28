@@ -27,11 +27,14 @@ by ID or under the relevant Nodes, Roles, or Deployment.
 | GET  |api/v2/node_roles | List |
 | GET  |api/v2/node_roles/:id | Specific Item |
 | PUT  |api/v2/node_roles/:id | Update Item |
+| PUT  |api/v2/node_roles/:id/retry | Retry (sets state back to TODO) |
+| PUT  |api/v2/node_roles/:id/propose | Propose (sets state to PROPOSED) |
+| PUT  |api/v2/node_roles/:id/commit | Commit (sets state to COMMIT) |
 | POST  |api/v2/node_roles | Create Item |
 | GET  | /api/v2/node_roles/[:node_role_id]/attribs  |  List Attribs for a specific node_role |
 | GET  | /api/v2/node_roles/[:node_role_id]/attribs/[:id]  | Show Attrib (including value) for a specific Node_Role |
 | PUT  | /api/v2/node_roles/[:node_role_id]/attribs/[:id]  | Update Attrib |
-| DELETE  | - |NOT SUPPORTED |
+| DELETE | api/v2/node_roles/:id | Allowed if Node Role does not have child dependencies |
 
 Helpers have been added to NodeRole create so that you do not need to
 provide IDs when creating a new NodeRole.  You can pass:
@@ -51,9 +54,18 @@ provide IDs when creating a new NodeRole.  You can pass:
 |Runlog|String|??||
 |Order|Integer|??||
 |State|Integer|??||
+|Node_Error|Boolean|No|Calculated|
 |Node_Id|Integer|Yes||
 |Status|??|??||
 |Run_count|Integer|No||
 |Deployment_Id|Integer|??||
 |Role_Id|Integer|Yes||
 |Id|Internal Ref|??|Actually an Int|
+
+## Field Notes
+
+### Node_Error
+
+_Calculated_
+
+True if any of the NodeRoles on the associated Node are in an error state.  This allows API users to monitor the status of a target role and know if there was an error that will block progress without having to inspect other NodeRoles.  Instead of looking at all parents (which could span nodes), Node provides a more limited scope

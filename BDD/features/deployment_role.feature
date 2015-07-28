@@ -21,11 +21,5 @@ Feature: DeploymentRole
   Scenario: Deployment Role network-server page renders
     Given I am on the "deployment_roles/network-server?deployment=system" page
     Then I should see a heading {bdd:crowbar.i18n.deployment_roles.show.attribs}
-      And I should see {bdd:crowbar.i18n.common.roles.network-server} 
-      And there are no localization errors
-
-  Scenario: Deployment Role 3 page renders
-    Given I am on the "deployment_roles/network-admin?deployment=system" page
-    Then I should see a heading {bdd:crowbar.i18n.deployment_roles.show.attribs} 
-      And I should see {bdd:crowbar.i18n.common.roles.network-admin}
+      And I should see "network-server"
       And there are no localization errors

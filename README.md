@@ -9,8 +9,7 @@ Welcome to the OpenCrowbar Project - the gateway to a new hardware provisioning 
 Documentation close by and located in under the **/doc** directory of OpenCrowbar and for each workload module.
 
 Want to _try out OpenCrowbar_?  Install following the [**deployment guide (for Centos)**](/doc/deployment-guide).
-For the quick start, just go [here](/doc/deployment-guide/Install-
-CentOS-RHEL-6.6-AdminNode.md) to build an admin node.
+For the quick start, just go [here](/doc/deployment-guide/Install-CentOS-RHEL-6.6-AdminNode.md) to build an admin node.
 
 Please refer to the [/doc directories](/doc/README.md) for detailed information.  We attempt to define and maintain one sub-directory for each functional element.  This structure is intended to be common across all workloads in the [OpenCrowbar project](https://github.com/opencrowbar/)
 
@@ -20,9 +19,12 @@ We've also made it easy to setup and run latest Crowbar using our [**Fast-Start 
 
 ## Current Release
 
-* Release v2.1 as of 12/3/2010 (was known as _Broom_) on *master* branch
-* Development for _Camshaft_ cycle moved to *develop* branch
-* Earlier Reseases: Anvil became v2.0 in Apr 2014
+* Release v2.3 as of 7/30/2015 (was known as _Drill_) on *master* branch
+* Development for _Epoxy_ cycle moved to *develop* branch
+* Earlier Releases: 
+  * Anvil became v2.0 in Apr 2014
+  * Broom became v2.1 in Dec 2014
+  * Camshaft became v2.2 in Apr 2015
 
 ## Join Our Community
 

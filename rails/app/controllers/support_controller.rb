@@ -95,19 +95,53 @@ class SupportController < ApplicationController
     end
   end
 
+  def bootstrap
+
+    if request.put?
+      if params[:raw] == 'json'
+        ConsulAccess::setKey(Rails.configuration.crowbar.bootstrap_key, params[:data])
+      else
+        yaml = params.key? :yaml
+        @config = JSON.parse(ConsulAccess::getKey(Rails.configuration.crowbar.bootstrap_key))
+        @config["domain"] = params["domain"]
+        @config["net_to_join"] = params["net_to_join"].split(",")
+        bootstrap_update yaml, "networks", @config, params 
+        bootstrap_update yaml, "filters", @config, params 
+        bootstrap_update yaml, "services", @config, params 
+        bootstrap_update yaml, "users", @config, params 
+        @config["ssh_keys"].each_key do |k|
+          @config["ssh_keys"][k] = params["ssh_keys|#{k}"]
+        end
+        if params["ssh_keys|new_data"].starts_with? "ssh-rsa"
+          @config["ssh_keys"][params["ssh_keys|new_name"]] = params["ssh_keys|new_data"]
+        end
+        # now save it
+        ConsulAccess::setKey(Rails.configuration.crowbar.bootstrap_key, JSON.pretty_generate(@config))
+ 
+      end
+    end
+
+    @config = JSON.parse(ConsulAccess::getKey(Rails.configuration.crowbar.bootstrap_key))
+
+    respond_to do |format|
+      format.html # index.html.haml
+      format.json { render :json => @config }
+    end
+  end
+
   # used by BDD to create Admin node
   def bootstrap_post
     # only create if no other netwroks
-    if Network.where(:name=>Network::ADMIN_NET).count == 0
+    if Network.where(:name=>'admin').count == 0
       deployment = Deployment.system
       Network.transaction do
         # admin network
-        net = Network.create :name=>Network::ADMIN_NET, :description=>I18n.t('support.bootstrap.admin_net'),  :deployment_id=>deployment.id, :conduit=>Network::DEFAULTCONDUIT, :v6prefix => Network::V6AUTO
+        net = Network.create :name=>'admin', :description=>I18n.t('support.bootstrap.admin_net', :default=>""),  :deployment_id=>deployment.id, :conduit=>Network::DEFAULTCONDUIT, :v6prefix => Network::V6AUTO, :category => "admin"
         NetworkRange.create :name=>'admin', :network_id=>net.id, :first=>"192.168.124.10/24", :last=>"192.168.124.11/24"
         NetworkRange.create :name=>'dhcp', :network_id=>net.id, :first=>"192.168.124.21/24", :last=>"192.168.124.80/24"
         NetworkRange.create :name=>'host', :network_id=>net.id, :first=>"192.168.124.81/24", :last=>"192.168.124.254/24"
         # bmc network
-        bmc = Network.create :name=>Network::BMC_NET, :description=>I18n.t('support.bootstrap.bmc_net'),  :deployment_id=>deployment.id, :conduit=>Network::BMCCONDUIT, :v6prefix => Network::V6AUTO
+        bmc = Network.create :name=>'bmc', :description=>I18n.t('support.bootstrap.bmc_net', :default=>""),  :deployment_id=>deployment.id, :conduit=>Network::BMCCONDUIT, :v6prefix => Network::V6AUTO, :category => "bmc"
         NetworkRange.create :name=>'admin', :network_id=>bmc.id, :first=>"192.168.128.10/24", :last=>"192.168.128.20/24"
         NetworkRange.create :name=>'host', :network_id=>bmc.id, :first=>"192.168.128.21/24", :last=>"192.168.128.254/24"
 
@@ -162,29 +196,39 @@ class SupportController < ApplicationController
 
   # return the queue status
   def queue
-    workers = %x[ps axe | grep delayed_job].split("delayed_job").length
-    j = { :workers => workers, :jobs => Delayed::Job.all }
+    j = { }
     render :json=>j
   end
 
   # supplies UI heartbeat information
   def heartbeat
-    j = { :active=>0, :todo=>0, :error=>0 } 
-    # not very efficient, but OK for now
-    NodeRole.all.each do |nr|
-      if nr.state == NodeRole::ERROR 
-        j[:error]+=1 
-      elsif nr.state == NodeRole::ACTIVE
-        j[:active]+=1
-      else
-        j[:todo]+=1
-      end
+    if session[:marker] != params[:marker]
+      session[:marker] = params[:marker]
+      session[:start] = Time.now
     end
-    render :json=>j
+    elapsed = (Time.now - session[:start]) rescue 0
+    total = NodeRole.count
+    error = NodeRole.where(state: NodeRole::ERROR).count
+    active = NodeRole.where(state: NodeRole::ACTIVE).count
+    render :json=>{ :active=>active, :todo=>(total-error-active), :error=>error, :elapsed=>elapsed.to_i } 
   end
 
   private 
-  
+
+  def bootstrap_update(yaml, key, config, params)  
+    # scan the keys we have
+    config[key].each_index do |i|
+      r = params["#{key}|#{i}"]
+      config[key][i] = (yaml ? YAML::load(r) : JSON.parse(r))
+    end
+    # add new keys
+    unless ["{}","---"].include? params["#{key}|new"]
+      r = params["#{key}|new"]
+      config[key] << (yaml ? YAML::load(r) : JSON.parse(r))
+    end
+  end
+
+
   def ctime
     Time.now.strftime("%Y%m%d-%H%M%S")
   end

@@ -12,21 +12,51 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+barclamp:
+  name: "dhcp"
+  parent: "core"
+  display: "Dhcp"
+  description: "Dynamic Host Configuration Protocol (DHCP)"
+  version: "2.3"
+  source_url: "https://github.com/opencrowbar/core"
+  license: "Apache 2"
+  license_url: "https://github.com/opencrowbar/core/blob/develop/doc/licenses/README.md"
+
 roles:
   - name: dhcp-server
     jig: chef
+    attribs:
+      - name: dhcp_leasetime
+        description: 'Default lease time for the DHCP server'
+        map: 'crowbar/dhcp/lease_time'
+        schema:
+          type: int
+          required: false
+      - name: dhcp_options
+        description: 'Additional options to send to DHCP clients'
+        map: 'crowbar/dhcp/options'
+        schema:
+          type: seq
+          sequence:
+            - type: str
+      - name: dhcp_networks
+        description: 'Networks to serve DHCP'
+        map: 'crowbar/dhcp/networks'
     wants-attribs:
       - dns_servers
+      - dns-domain
+      - provisioner-webservers
     requires:
-      - network-admin
-      - dns-client
+      - dns-service
+      - provisioner-service
   - name: dhcp-database
     jig: chef
     wants-attribs:
       - dns_servers
+      - provisioner-webservers
     requires:
       - dhcp-server
-      - provisioner-server
+      - provisioner-service
   - name: dhcp-service
     jig: role-provided
     flags:

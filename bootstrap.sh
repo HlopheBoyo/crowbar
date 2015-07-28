@@ -2,6 +2,19 @@
 set -e
 # If we have an http_proxy variable, make sure we have a semi-cromulent
 # no_proxy variable as well.
+
+if [[ ! $OCB_CLEANED ]]; then
+
+    if which yum &>/dev/null; then
+        yum clean all
+    fi
+
+    if which rpm &>/dev/null; then
+        rpm --rebuilddb
+    fi
+    export OCB_CLEANED=true
+fi
+
 . /etc/profile
 if [[ $http_proxy && !$no_proxy ]] ; then
     export no_proxy="127.0.0.1,localhost,::1"
@@ -15,24 +28,35 @@ check_hostname() {
     exit 1
 }
 
-prefix_r=(recipe[barclamp]
-          recipe[ohai]
-          recipe[utils])
+prefix_r=('recipe[barclamp]'
+          'recipe[ohai]'
+          'recipe[utils]')
+
 boot_r=('recipe[crowbar-bootstrap::boot]'
+        'recipe[crowbar-bootstrap::ssh]'
+        'recipe[crowbar-bootstrap::crowbar-user]'
         'recipe[crowbar-bootstrap::wsman]'
         'recipe[crowbar-bootstrap::sledgehammer]'
         'recipe[crowbar-bootstrap::gemstuff]'
         'recipe[crowbar-bootstrap::go]'
         'recipe[crowbar-bootstrap::goiardi-build]'
         'recipe[crowbar-bootstrap::sws-build]'
+        'recipe[crowbar-bootstrap::dns-mgmt-build]'
         'recipe[crowbar-bootstrap::consul]'
         'recipe[consul::install]'
         'recipe[consul::ui]')
-database_r=('recipe[crowbar-bootstrap::postgresql]'
-            'recipe[crowbar-bootstrap::goiardi]')
+
+node_r=('recipe[crowbar-bootstrap::ssh]'
+        'recipe[crowbar-bootstrap::crowbar-user]')
+
+database_r=('recipe[crowbar-bootstrap::consul]'
+            'recipe[crowbar-bootstrap::postgresql]')
+chef_server_r=('recipe[crowbar-bootstrap::goiardi]')
 proxy_r=("${prefix_r[@]}"
-         'recipe[crowbar-squid]')
-consul_r=('recipe[consul::start-service]')
+         'recipe[crowbar-squid::client]')
+consul_r=('recipe[crowbar-bootstrap::consul]'
+          'recipe[consul::start-service]'
+          'recipe[crowbar-bootstrap::consul-post]')
 
 make_recipes() {
     local res="$(printf "%s," "$@")"
@@ -42,8 +66,10 @@ make_recipes() {
 prefix_recipes="$(make_recipes "${prefix_r[@]}")"
 boot_recipes="$(make_recipes "${boot_r[@]}")"
 database_recipes="$(make_recipes "${database_r[@]}")"
+chef_server_recipes="$(make_recipes "${chef_server_r[@]}")"
 proxy_recipes="$(make_recipes "${proxy_r[@]}")"
 consul_recipes="$(make_recipes "${consul_r[@]}")"
+node_recipes="$(make_recipes "${node_r[@]}")"
 
 cd /opt/opencrowbar/core
 # Figure out what we are running on.

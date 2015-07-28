@@ -1,8 +1,0 @@
-{   "crowbar": {
-        "consul": {
-            "data_dir": "/var/lib/consul",
-            "service_mode": "client",
-            "config_dir": "/etc/consul.d"
-        }
-    }
-}

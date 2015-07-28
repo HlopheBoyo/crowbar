@@ -18,7 +18,10 @@ require 'open4'
 
 class Node < ActiveRecord::Base
 
+  audited
+
   before_validation :default_population
+  before_destroy :before_destroy_handler
   after_update :bootenv_change_handler
   after_update :deployment_change_handler
   after_commit :on_create_hooks, on: :create
@@ -40,11 +43,6 @@ class Node < ActiveRecord::Base
   validates_format_of     :name, :with=>FQDN_RE, :message => I18n.t("db.fqdn", :default=>"Name must be a fully qualified domain name.")
   validates_length_of     :name, :maximum => 255
 
-  # TODO: 'alias' will move to DNS BARCLAMP someday, but will prob hang around here a while
-  validates_uniqueness_of :alias, :case_sensitive => false, :message => I18n.t("db.notunique", :default=>"Name item must be unique")
-  validates_format_of :alias, :with=>/\A[A-Za-z0-9\-]*[A-Za-z0-9]\z/, :message => I18n.t("db.alias", :default=>"Alias is not valid.")
-  validates_length_of :alias, :maximum => 100
-
   has_and_belongs_to_many :groups, :join_table => "node_groups", :foreign_key => "node_id"
 
   has_many    :node_roles,         :dependent => :destroy
@@ -54,7 +52,7 @@ class Node < ActiveRecord::Base
   has_many    :network_allocations,:dependent => :destroy
   has_many    :hammers,            :dependent => :destroy
   belongs_to  :deployment
-  belongs_to  :target_role,        :class_name => "Role", :foreign_key => "target_role_id"
+  belongs_to  :target_role,        :class_name => "Role", :foreign_key => "target_role_id"  # used to troubleshoot problem nodes (see API doc)
 
   alias_attribute :ips,            :network_allocations
 
@@ -62,6 +60,7 @@ class Node < ActiveRecord::Base
   scope    :alive,              -> { where(:alive => true) }
   scope    :available,          -> { where(:available => true) }
   scope    :regular,            -> { where(:admin => false, :system=>false) }
+  scope    :non_system,         -> { where(:system=>false) }
   scope    :system,             -> { where(:system => true) }
 
   # Get all the attributes applicable to a node.
@@ -137,19 +136,33 @@ class Node < ActiveRecord::Base
     IP.coerce("#{net.v6prefix}:#{v6_hostpart}/64")
   end
 
-  def addresses
-    net = Network.find_by!(:name => "admin") rescue nil
-    return [] unless net
-    res = network_allocations.where(network_id: net.id).map do |a|
-      a.address
+  def addresses(filter = :all, networks = ["admin","unmanaged"])
+    res = []
+    networks.each do |net_cat|
+      nets = Network.in_category(net_cat)
+      nets.each do |net|
+        res2 = network_allocations.where(network_id: net.id).select do |a|
+          answer = true
+          answer = false if filter == :v4_only and !a.address.v4?
+          answer = false if filter == :v6_only and !a.address.v6?
+          answer
+        end.map do |a|
+          a.address
+        end
+
+        if res2
+          res2 = res2.sort
+          res << res2
+        end
+      end
     end
-    res.sort
+    res.flatten
   end
 
-  def address
-    res = addresses.detect{|a|a.reachable?}
-    Rails.logger.warn("Node #{name} did not have any reachable addresses in #{addresses.map{ |a| a.addr }.join(",")}") unless res
-    res 
+  def address(filter = :all, networks = ["admin","unmanaged"])
+    res = addresses(filter,networks).detect{|a|a.reachable?}
+    Rails.logger.warn("Node #{name} did not have any reachable addresses in networks #{networks.inspect}") unless res
+    res
   end
 
   def url_address
@@ -274,6 +287,13 @@ class Node < ActiveRecord::Base
     end
   end
 
+  def note_update(val)
+    transaction do
+      self.notes = self.notes.deep_merge(val)
+      save!
+    end
+  end
+  
   def hint_update(val)
     Node.transaction do
       self.hint = self.hint.deep_merge(val)
@@ -494,24 +514,7 @@ class Node < ActiveRecord::Base
           node_roles.order("cohort ASC").each do |nr|
             nr.deactivate
           end
-        end
-      end
-    end
-    # Find noderoles bound to this node that want an attrib that would be directly provided
-    # by this node, and poke that noderole if the attrib it wants has changed.
-    if available? && alive? && (previous_changes[:hint] || previous_changes[:discovery])
-      NodeRole.transaction do
-        current_info = {}
-        old_info = {}
-        [:hint,:discovery].each do |key|
-          current_info.deep_merge!(self[key])
-          old_info.deep_merge!(previous_changes[key] ? previous_changes[key][0] : self[key])
-        end
-        node_roles.each do |nr|
-          next unless nr.role.wanted_attribs.count > 0 &&
-            nr.role.wanted_attribs.where('"attribs"."role_id" IS NULL').any?{|a|a.get(current_info) == a.get(old_info)}
-          next unless nr.runnable? && (nr.transition? || nr.active?)
-          nr.send(:block_or_todo)
+          runs.delete_all
         end
       end
     end
@@ -520,7 +523,6 @@ class Node < ActiveRecord::Base
   # make sure some safe values are set for the node
   def default_population
     self.name = self.name.downcase
-    self.alias ||= self.name.split(".")[0]
     self.deployment ||= Deployment.system
   end
 
@@ -532,7 +534,7 @@ class Node < ActiveRecord::Base
       begin
         Rails.logger.info("Node: Calling #{r.name} on_node_delete for #{self.name}")
         r.on_node_delete(self)
-      rescue Exception => e
+      rescue StandardError => e
         Rails.logger.error "node #{name} attempting to cleanup role #{r.name} failed with #{e.message}"
       end
     end
@@ -556,4 +558,15 @@ class Node < ActiveRecord::Base
     end
   end
 
+  def before_destroy_handler
+    Node.transaction do
+      return false if self.admin && Node.admin.count == 1
+      # Delete all the noderoles bound in this deployment
+      node_roles.order("cohort DESC").each do |nr|
+        return false unless nr.destroy
+      end
+      return true
+    end
+  end
+  
 end

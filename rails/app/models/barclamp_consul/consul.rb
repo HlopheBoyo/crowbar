@@ -17,31 +17,46 @@ require 'resolv'
 
 class BarclampConsul::Consul < Role
 
-  def on_proposed(nr)
-    NodeRole.transaction do
-      sd = { "consul" => {}}
-      # If this is our first Consul node, have it operate in bootstrap mode.
-      # Otherwise, it is a client.
-      sd["consul"]["service_mode"] = nr.role.node_roles.count == 1 ? "bootstrap" : "client"
-      # We will have Consul talk over IPv6
-      sd["consul"]["bind_addr"] = Network.address(network: "admin", range: "host-v6", node: nr.node.id).address.addr
-      nr.sysdata = sd
-    end
-  end
-
-  def on_todo(nr)
-    return if nr.sysdata["consul"]["service_mode"] == "bootstrap"
-    sd = nr.sysdata
-    Resolv::DNS.open(nameserver_port: [['127.0.0.1',8600]],
-                     nameserver: '127.0.0.1',
-                     search: "consul",
-                     ndots: 1) do |resolv|
-      servers = resolv.getaddresses('consul.service.consul').map{|a|"[#{a.to_s}]"}
-      NodeRole.transaction do
-        sd["consul"]["servers"] = servers
-        nr.sysdata = sd
+  def on_deployment_create(dr)
+    DeploymentRole.transaction do
+      if Attrib.get("consul-encrypt",dr) == "change_me"
+        Attrib.set("consul-encrypt",dr,SecureRandom.base64)
+      end
+      if Attrib.get("consul-acl-master-token",dr) == "change_me"
+        Attrib.set("consul-acl-master-token",dr,SecureRandom.uuid)
       end
     end
   end
 
+  def on_node_bind(nr)
+    NodeRole.transaction do
+      # If this is our first Consul node, have it operate in server mode.
+      # Otherwise, it is a client.
+      consuls = NodeRole.where(deployment_id: nr.deployment_id, role_id: nr.role_id).count
+      Attrib.set("consul-mode",nr,consuls == 1 ? "server" : "client")
+    end
+  end
+
+  def on_todo(nr)
+    Attrib.transaction do
+      if Attrib.get("consul-address",nr).nil?
+        Attrib.set("consul-address",nr,nr.node.addresses.first.addr)
+      end
+    end
+    return if Attrib.get('consul-mode',nr) == "client"
+    DeploymentRole.transaction do
+      consuls = NodeRole.where(deployment_id: nr.deployment_id,
+                               role_id: nr.role_id).reject do |cnr|
+        Attrib.get('consul-mode',cnr) == "client"
+      end
+
+      servers = consuls.map{|cnr| "[#{cnr.node.addresses.first.addr}]:8301"}
+      to_join = consuls.reject{|cnr|cnr.id == nr.id}.map{|cnr| "[#{cnr.node.addresses.first.addr}]:8301"}
+      Rails.logger.info("Updating global Consul servers: #{servers.inspect}")
+      Rails.logger.info("Updating this Consul's servers: #{to_join.inspect}")
+      Attrib.set("consul-servers",nr.deployment_role,servers)
+      Attrib.set("consul-bootstrap-expect",nr.deployment_role,consuls.length)
+      Attrib.set("consul-servers",nr,to_join)
+    end
+  end
 end

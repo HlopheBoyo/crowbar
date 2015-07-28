@@ -14,14 +14,16 @@
 #
 
 domain_name = node['crowbar']['dns']['domain']
-provisioner_web=node['crowbar']['provisioner']['server']['webserver']
+provisioner_web=node['crowbar']['provisioner']['server']['webservers'].first["url"]
+api_server=node['crowbar']['api']['servers'].first["url"]
+ntp_server="#{node['crowbar']['ntp']['servers'].first}"
 tftproot = node['crowbar']['provisioner']['server']['root']
-machine_key = node["crowbar"]["provisioner"]["machine_key"]
+machine_key = node["crowbar"]["machine_key"]
 node_dir="#{tftproot}/nodes"
 discover_dir="#{tftproot}/discovery"
 pxecfg_dir="#{discover_dir}/pxelinux.cfg"
 uefi_dir=discover_dir
-pxecfg_default="#{pxecfg_dir}/default"
+
 node.normal['crowbar_wall'] ||= Mash.new
 node.normal['crowbar_wall']['provisioner'] ||= Mash.new
 node.normal['crowbar_wall']['provisioner']['clients'] ||= Mash.new
@@ -30,15 +32,17 @@ new_clients = {}
 (node['crowbar']['provisioner']['clients'] || {} rescue {}).each do |mnode_name,provisioner_info|
   # Build PXE and ELILO config files for each system
   v4addr = IP.coerce(provisioner_info["v4addr"])
-  nodeaddr = sprintf("%X",v4addr.address)
+  nodeaddr = sprintf("%08X",v4addr.address)
   bootenv = provisioner_info["bootenv"]
   pxefile = "#{pxecfg_dir}/#{nodeaddr}"
   uefifile = "#{uefi_dir}/#{nodeaddr}.conf"
+  root = provisioner_info["rootdev"].sub("/dev/","") if /-install$/.match(bootenv)
   new_clients[mnode_name] = {
     "v4addr" => provisioner_info["v4addr"],
     "nodeaddr" => nodeaddr,
     "pxefile" => pxefile,
-    "uefifile" => uefifile
+    "uefifile" => uefifile,
+    "bootenv" => bootenv
   }
   # Generate an appropriate control.sh for the system.
   directory "#{node_dir}/#{mnode_name}" do
@@ -71,9 +75,10 @@ new_clients = {}
                 :online => node['crowbar']['provisioner']['server']['online'],
                 :domain => domain_name,
                 :provisioner_web => provisioner_web,
-                :proxy => node['crowbar']['provisioner']['server']['proxy'],
-                :keys => (node['crowbar']['provisioner']['server']['access_keys'] rescue Hash.new).values.sort.join($/),
-                :v4_addr => node.address('admin',IP::IP4).addr
+                :ntp_server => ntp_server,
+                :proxy => node['crowbar']['proxy']['servers'].first['url'],
+                :keys => (node['crowbar']['access_keys'] rescue Hash.new).values.sort.join($/),
+                :api_server => api_server
                 )
     end
   when "ubuntu-12.04-install"
@@ -82,6 +87,25 @@ new_clients = {}
       version "12.04"
       address v4addr
       target mnode_name
+      rootdev root
+      action :add
+    end
+  when "ubuntu-12.04.3-install"
+    provisioner_debian mnode_name do
+      distro "ubuntu"
+      version "12.04.3"
+      address v4addr
+      target mnode_name
+      rootdev root
+      action :add
+    end
+  when 'ubuntu-15.04-install'
+    provisioner_debian mnode_name do
+      distro 'ubuntu'
+      version '15.04'
+      address v4addr
+      target mnode_name
+      rootdev root
       action :add
     end
   when 'ubuntu-14.04-install'
@@ -90,6 +114,7 @@ new_clients = {}
       version '14.04'
       address v4addr
       target mnode_name
+      rootdev root
       action :add
     end
   when 'centos-6.5-install'
@@ -98,6 +123,7 @@ new_clients = {}
       version '6.5'
       address v4addr
       target mnode_name
+      rootdev root
       action :add
     end
   when 'centos-6.6-install'
@@ -106,6 +132,7 @@ new_clients = {}
       version '6.6'
       address v4addr
       target mnode_name
+      rootdev root
       action :add
     end
   when 'redhat-6.5-install'
@@ -114,6 +141,7 @@ new_clients = {}
       version '6.5'
       address v4addr
       target mnode_name
+      rootdev root
       action :add
     end
   when 'redhat-6.6-install'
@@ -122,6 +150,7 @@ new_clients = {}
       version '6.6'
       address v4addr
       target mnode_name
+      rootdev root
       action :add
     end
   when 'fedora-20-install'
@@ -130,6 +159,7 @@ new_clients = {}
       version '20'
       address v4addr
       target mnode_name
+      rootdev root
       action :add
     end
   when 'redhat-7.0-install'
@@ -138,6 +168,7 @@ new_clients = {}
       version '7.0'
       address v4addr
       target mnode_name
+      rootdev root
       action :add
     end
   when 'centos-7.1.1503-install'
@@ -146,6 +177,16 @@ new_clients = {}
       version '7.1.1503'
       address v4addr
       target mnode_name
+      rootdev root
+      action :add
+    end
+  when "coreos-install"
+    provisioner_coreos mnode_name do
+      distro 'coreos'
+      version 'latest'
+      address v4addr
+      target mnode_name
+      rootdev root
       action :add
     end
   when "debian-7.8.0-install"
@@ -154,6 +195,43 @@ new_clients = {}
       version "7.8.0"
       address v4addr
       target mnode_name
+      rootdev root
+      action :add
+    end
+  when "debian-8.1.0-install"
+    provisioner_debian mnode_name do
+      distro "debian"
+      version "8.1.0"
+      address v4addr
+      target mnode_name
+      rootdev root
+      action :add
+    end
+  when "xenserver-6.5-install"
+    provisioner_xenserver mnode_name do
+      distro "xenserver"
+      version "6.5"
+      address v4addr
+      target mnode_name
+      rootdev root
+      action :add
+    end
+  when "esxi-5.5-install"
+    provisioner_esxi mnode_name do
+      distro "esxi"
+      version "5.5"
+      address v4addr
+      target mnode_name
+      rootdev root
+      action :add
+    end
+  when "fuel-6.0-install"
+    provisioner_fuel mnode_name do
+      distro "fuel"
+      version "6.0"
+      address v4addr
+      target mnode_name
+      rootdev root
       action :add
     end
   else

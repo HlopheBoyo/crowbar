@@ -13,13 +13,22 @@
 # limitations under the License.
 #
 
-version: "2.Camshaft"
-source_url: "https://github.com/opencrowbar/core"
-license: "Apache 2"
-license_url: "https://github.com/opencrowbar/core/blob/develop/doc/licenses/README.md"
+barclamp:
+  name: "core"
+  description: "Core OpenCrowbar functionality"
+  display: "Core"
+  version: "2.3"
+  source_url: "https://github.com/opencrowbar/core"
+  license: "Apache 2"
+  license_url: "https://github.com/opencrowbar/core/blob/develop/doc/licenses/README.md"
+
+crowbar:
+  layout: 2.0
 
 os_support:
   - ubuntu-12.04
+  - ubuntu-14.04
+  - ubuntu-15.04
   - redhat-6.5
   - redhat-6.6
   - centos-6.5
@@ -28,34 +37,10 @@ os_support:
   - opensuse-13.1
   - fedora-20
   - debian-7.8.0
-
-barclamps:
-  - name: crowbar
-    description: "Foundational Roles"
-  - name: test
-    description: "Test Barclamp Integrations"
-  - name: network
-    description: "Network Configuration"
-  - name: chef
-    description: "Chef CMDB & DevOps Framework"
-  - name: saltstack
-    description: "SaltStack CMDB & DevOps Framework"
-  - name: deployer
-    description: "Discover and Inventory Systems (aka Sledgehammer)"
-  - name: dhcp
-    description: "Dynamic Host Configuration Protocol (DHCP)"
-  - name: provisioner
-    description: "Install Persistent Operating System"
-  - name: dns 
-    description: "Domain Name Service (DNS)"
-  - name: ntp 
-    description: "Network Time Protocol (NTP)"
-  - name: logging
-    description: "Log Centralization and Management"
-  - name: puppet
-    description: "Puppet Deployment Services"
-  - name: consul
-    description: "Consul Service Monitoring and Management"
+  - debian-8.1.0
+  - xenserver-6.5
+  - esxi-5.5
+  - fuel-6.0    
 
 jigs:
   - name: script
@@ -85,8 +70,28 @@ jigs:
 extra_files:
   - http://downloads.sourceforge.net/project/elilo/elilo/elilo-3.16/elilo-3.16-all.tar.gz
   - http://opscode-omnibus-packages.s3.amazonaws.com/el/6/x86_64/chef-11.16.4-1.el6.x86_64.rpm
+  - http://storage.core-os.net/coreos/amd64-generic/38.0.0/pkgs/sys-apps/dmidecode-2.10.tbz2
 
 debs:
+  ubuntu-12.04.3:
+    raw_pkgs:
+      - http://opscode-omnibus-packages.s3.amazonaws.com/ubuntu/12.04/x86_64/chef_11.12.8-1_amd64.deb
+    repos:
+      - deb http://us.archive.ubuntu.com/ubuntu/ precise main restricted universe multiverse
+      - deb-src http://us.archive.ubuntu.com/ubuntu/ precise main restricted universe multiverse
+      - deb http://us.archive.ubuntu.com/ubuntu/ precise-updates main restricted universe multiverse
+      - deb-src http://us.archive.ubuntu.com/ubuntu/ precise-updates main restricted universe multiverse
+      - deb http://archive.canonical.com/ubuntu precise partner
+      - deb-src http://archive.canonical.com/ubuntu precise partner
+      - deb http://extras.ubuntu.com/ubuntu precise main
+      - deb-src http://extras.ubuntu.com/ubuntu precise main
+      - deb http://security.ubuntu.com/ubuntu precise-security main restricted universe multiverse
+      - deb-src http://security.ubuntu.com/ubuntu precise-security main restricted universe multiverse
+      - deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main
+      - deb http://ppa.launchpad.net/saltstack/salt/ubuntu precise main
+      - deb http://download.draios.com/stable/deb stable-amd64/
+    pkgs:
+      - rpcbind
   ubuntu-12.04:
     raw_pkgs:
       - http://opscode-omnibus-packages.s3.amazonaws.com/ubuntu/12.04/x86_64/chef_11.12.8-1_amd64.deb
@@ -103,6 +108,7 @@ debs:
       - deb-src http://security.ubuntu.com/ubuntu precise-security main restricted universe multiverse
       - deb http://apt.postgresql.org/pub/repos/apt/ precise-pgdg main
       - deb http://ppa.launchpad.net/saltstack/salt/ubuntu precise main
+      - deb http://download.draios.com/stable/deb stable-amd64/
     pkgs:
       - rpcbind
   ubuntu-14.04:
@@ -122,6 +128,27 @@ debs:
       - deb http://apt.postgresql.org/pub/repos/apt/ trusty-pgdg main
       - deb http://get.docker.io/ubuntu docker main
       - deb http://ppa.launchpad.net/saltstack/salt/ubuntu trusty main
+      - deb http://download.draios.com/stable/deb stable-amd64/
+    pkgs:
+      - rpcbind
+  ubuntu-15.04:
+    raw_pkgs:
+      - http://opscode-omnibus-packages.s3.amazonaws.com/ubuntu/12.04/x86_64/chef_11.14.2-1_amd64.deb
+    repos:
+      - deb http://us.archive.ubuntu.com/ubuntu/ vivid main restricted universe multiverse
+      - deb-src http://us.archive.ubuntu.com/ubuntu/ vivid main restricted universe multiverse
+      - deb http://us.archive.ubuntu.com/ubuntu/ vivid-updates main restricted universe multiverse
+      - deb-src http://us.archive.ubuntu.com/ubuntu/ vivid-updates main restricted universe multiverse
+      - deb http://archive.canonical.com/ubuntu vivid partner
+      - deb-src http://archive.canonical.com/ubuntu vivid partner
+      #- deb http://extras.ubuntu.com/ubuntu vivid main
+      #- deb-src http://extras.ubuntu.com/ubuntu vivid main
+      - deb http://security.ubuntu.com/ubuntu vivid-security main restricted universe multiverse
+      - deb-src http://security.ubuntu.com/ubuntu vivid-security main restricted universe multiverse
+      #- deb http://apt.postgresql.org/pub/repos/apt/ vivid-pgdg main
+      - deb http://get.docker.io/ubuntu docker main
+      - deb http://ppa.launchpad.net/saltstack/salt/ubuntu vivid main
+      - deb http://download.draios.com/stable/deb stable-amd64/
     pkgs:
       - rpcbind
   debian-7.8.0:
@@ -136,6 +163,22 @@ debs:
       - deb-src http://ftp.us.debian.org/debian wheezy-updates main contrib non-free
       - deb http://ftp.us.debian.org/debian wheezy-backports main contrib non-free
       - deb-src http://ftp.us.debian.org/debian wheezy-backports main contrib non-free
+      - deb http://download.draios.com/stable/deb stable-amd64/
+    pkgs:
+      - rpcbind
+  debian-8.1.0:
+    raw_pkgs:
+      - http://opscode-omnibus-packages.s3.amazonaws.com/debian/6/x86_64/chef_11.14.2-1_amd64.deb
+    repos:
+      - deb http://ftp.us.debian.org/debian jessie main contrib non-free
+      - deb-src http://ftp.us.debian.org/debian jessie main contrib non-free
+      - deb http://security.debian.org/ jessie/updates main contrib non-free
+      - deb-src http://security.debian.org/ jessie/updates main contrib non-free
+      - deb http://ftp.us.debian.org/debian jessie-updates main contrib non-free
+      - deb-src http://ftp.us.debian.org/debian jessie-updates main contrib non-free
+      - deb http://ftp.us.debian.org/debian jessie-backports main contrib non-free
+      - deb-src http://ftp.us.debian.org/debian jessie-backports main contrib non-free
+      - deb http://download.draios.com/stable/deb stable-amd64/
     pkgs:
       - rpcbind
   required_pkgs:
@@ -244,7 +287,8 @@ rpms:
       - rpm http://yum.postgresql.org/9.3/redhat/rhel-6-x86_64/pgdg-redhat93-9.3-1.noarch.rpm
       - bare bsdtar 20 http://download.opensuse.org/repositories/home:/AndreasStieger:/branches:/Archiving/CentOS_CentOS-6/
       - bare vbernat 20 http://download.opensuse.org/repositories/home:/vbernat/RedHat_RHEL-6/
-      - bare openswman 20 http://download.opensuse.org/repositories/Openwsman/CentOS_CentOS-6/
+      - bare openwsman 20 http://opencrowbar.s3-website-us-east-1.amazonaws.com/openwsman
+      - bare draios 20 http://download.draios.com/stable/rpm/x86_64
     build_pkgs:
       - libcurl-devel
       - yum-plugin-downloadonly
@@ -298,7 +342,8 @@ rpms:
       - rpm http://yum.postgresql.org/9.3/redhat/rhel-6-x86_64/pgdg-redhat93-9.3-1.noarch.rpm
       - bare bsdtar 20 http://download.opensuse.org/repositories/home:/AndreasStieger:/branches:/Archiving/CentOS_CentOS-6/
       - bare vbernat 20 http://download.opensuse.org/repositories/home:/vbernat/RedHat_RHEL-6/
-      - bare openswman 20 http://download.opensuse.org/repositories/Openwsman/CentOS_CentOS-6/
+      - bare openwsman 20 http://opencrowbar.s3-website-us-east-1.amazonaws.com/openwsman
+      - bare draios 20 http://download.draios.com/stable/rpm/x86_64
     build_pkgs:
       - libcurl-devel
       - yum-plugin-downloadonly
@@ -352,7 +397,10 @@ rpms:
       - rpm http://yum.postgresql.org/9.3/redhat/rhel-6-x86_64/pgdg-redhat93-9.3-1.noarch.rpm
       - bare bsdtar 20 http://download.opensuse.org/repositories/home:/AndreasStieger:/branches:/Archiving/CentOS_CentOS-6/
       - bare vbernat 20 http://download.opensuse.org/repositories/home:/vbernat/CentOS_CentOS-6/
-      - bare openwsman 20 http://download.opensuse.org/repositories/Openwsman/CentOS_CentOS-6/
+      - bare openwsman 20 http://opencrowbar.s3-website-us-east-1.amazonaws.com/openwsman
+      - bare draios 20 http://download.draios.com/stable/rpm/x86_64
+#      - bare pdns 20 http://www.monshouwer.eu/download/3rd_party/pdns/el6/x86_64
+#      - bare pdnsrecursor 20 http://www.monshouwer.eu/download/3rd_party/pdns-recursor/el6/x86_64
     build_pkgs:
       - libcurl-devel
       - yum-plugin-downloadonly
@@ -413,7 +461,10 @@ rpms:
       - rpm http://yum.postgresql.org/9.3/redhat/rhel-6-x86_64/pgdg-redhat93-9.3-1.noarch.rpm
       - bare bsdtar 20 http://download.opensuse.org/repositories/home:/AndreasStieger:/branches:/Archiving/CentOS_CentOS-6/
       - bare vbernat 20 http://download.opensuse.org/repositories/home:/vbernat/CentOS_CentOS-6/
-      - bare openwsman 20 http://download.opensuse.org/repositories/Openwsman/CentOS_CentOS-6/
+      - bare openwsman 20 http://opencrowbar.s3-website-us-east-1.amazonaws.com/openwsman
+      - bare draios 20 http://download.draios.com/stable/rpm/x86_64
+#      - bare pdns 20 http://www.monshouwer.eu/download/3rd_party/pdns/el6/x86_64
+#      - bare pdnsrecursor 20 http://www.monshouwer.eu/download/3rd_party/pdns-recursor/el6/x86_64
     build_pkgs:
       - libcurl-devel
       - yum-plugin-downloadonly
@@ -471,7 +522,11 @@ rpms:
       - http://opscode-omnibus-packages.s3.amazonaws.com/el/6/x86_64/chef-11.16.4-1.el6.x86_64.rpm
     repos:
       - rpm http://yum.postgresql.org/9.3/redhat/rhel-7-x86_64/pgdg-centos93-9.3-1.noarch.rpm
+      - rpm http://mirrors.kernel.org/fedora-epel/7/x86_64/e/epel-release-7-5.noarch.rpm
       - bare vbernat 20 http://download.opensuse.org/repositories/home:/vbernat/CentOS_7/
+      - bare draios 20 http://download.draios.com/stable/rpm/x86_64
+#      - bare pdns 20 http://www.monshouwer.eu/download/3rd_party/pdns/el7/x86_64
+#      - bare pdnsrecursor 20 http://www.monshouwer.eu/download/3rd_party/pdns-recursor/el7/x86_64
     build_pkgs:
       - libcurl-devel
       - yum-plugin-downloadonly
@@ -520,6 +575,7 @@ rpms:
   fedora-20:
     repos:
       - bare vbernat 20 http://download.opensuse.org/repositories/home:/vbernat/Fedora_20/
+      - bare draios 20 http://download.draios.com/stable/rpm/x86_64
     raw_pkgs:
       - http://opscode-omnibus-packages.s3.amazonaws.com/el/6/x86_64/chef-11.16.4-1.el6.x86_64.rpm
     required_pkgs:
@@ -619,12 +675,14 @@ rpms:
       - apache2
       - apache2-devel
   required_pkgs:
+    - acl
     - cmake
     - curl
     - efibootmgr
     - gcc
     - gcc-c++
     - git
+    - jq
     - libc-devel
     - libcurl-devel
     - libxml2-devel

@@ -33,9 +33,6 @@ pop(ConfigRaw)  ->
   bdd_utils:config_set(global_setup, dev),
   bdd_utils:config_set(inspect, false),
 
-  % make sure background progress
-  true = crowbar:worker(),
-
   % safety setup 
   bdd_crud:delete(node:g(path), crowbar:g(node_name)),
   Build = case file:consult(bdd_utils:config(simulator, "dev.config")) of
@@ -44,7 +41,7 @@ pop(ConfigRaw)  ->
   end,
 
   % admin node
-  Admin = node:add_node(g(node_name), "crowbar-admin-node", [{description, "dev" ++ g(description)}, {order, 100}, {admin, "true"}], g(node_atom)),
+  Admin = node:add_node(g(node_name), "crowbar-admin-node", [{description, "dev" ++ g(description)}, {order, 100}, {admin, "true"}, {ip, "192.168.124.10/24"}], g(node_atom)),
 
   % admin node has to complete
   bdd_utils:log(info, dev, pop, "Admin (~p: ~p) exists, waiting for annealer to catch-up...", [Admin#obj.id, g(node_name)]),

@@ -29,6 +29,7 @@
 set -x
 exec 2>&1
 exec >>/target/root/post-install.log
+export PS4='${BASH_SOURCE}@${LINENO}(${FUNCNAME[0]}): '
 echo "Acquire::http::Proxy \"<%=@proxy%>\";" >/target/etc/apt/apt.conf.d/00-proxy
 
 <% @repos.keys.sort.each do |repo|
@@ -49,8 +50,8 @@ rm -f /target/etc/apt/sources.list
 rsyslog_dir="/target/etc/rsyslog.d"
 if [ -d "$rsyslog_dir" ]; then
     if [ ! -f "$rsyslog_dir/10-crowbar-client.conf" ]; then
-        echo "*.* @@<%= @admin_ip %>" > "$rsyslog_dir/10-crowbar-client.conf"
-	if ! wget -O "$rsyslog_dir/00-crowbar-debug.conf" -q http://<%=@provisioner_web%>/rsyslog.d/00-crowbar-debug.conf
+        echo "*.* @@<%= @logging_server %>" > "$rsyslog_dir/10-crowbar-client.conf"
+	if ! wget -O "$rsyslog_dir/00-crowbar-debug.conf" -q <%=@provisioner_web%>/rsyslog.d/00-crowbar-debug.conf
 	then
 	    rm -f "$rsyslog_dir/00-crowbar-debug.conf"
 	fi
@@ -69,7 +70,15 @@ EOF
 
 cp /etc/gemrc /root/.gemrc
 
-wget -q <%=@web_path%>/crowbar_join.sh -O- > /target/etc/init.d/crowbar_join.sh
+wget -q <%=@web_path%>/crowbar_join.sh -O- > /target/etc/init.d/crowbar_join
+
+mkdir -p /target/root/.ssh
+
+cat >/target/root/.ssh/authorized_keys <<EOF
+<%= @keys %>
+EOF
+
+mount /proc /target/proc
 
 cat > /target/update_system2.sh <<"EOF"
 #!/bin/bash
@@ -103,18 +112,16 @@ export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true
 export LC_ALL=C LANGUAGE=C LANG=C
 apt-get -y --force-yes update
 apt-get -y --force-yes remove apparmor
-apt-get -y --force-yes install ntpdate
+apt-get -y --force-yes install ntpdate jq
 
 echo "PermitRootLogin without-password" >> /etc/ssh/sshd_config
 # Allow client to pass http proxy environment variables
 echo "AcceptEnv http_proxy https_proxy no_proxy" >> /etc/ssh/sshd_config
 
-<% if @install_name =~ /^debian-/ -%>
-update-rc.d crowbar_join.sh defaults
-<% end -%>
+update-rc.d crowbar_join defaults
 
 curl -u "$CROWBAR_KEY" --digest -L -X PUT -d "bootenv=local" \
-    "http://<%=@admin_ip%>:3000/api/v2/nodes/$HOSTNAME"
+    "<%=@api_server%>/api/v2/nodes/$HOSTNAME"
 
 # Wait for the provisioner to catch up
 while true; do
@@ -124,20 +131,7 @@ while true; do
 done
 EOF
 
-mkdir -p /target/root/.ssh
-
-cat >/target/root/.ssh/authorized_keys <<EOF
-<%= @keys %>
-EOF
-
-
-mount /proc /target/proc
-chmod +x /target/etc/init.d/crowbar_join.sh
-chmod +x /target/update_system2.sh
-<% if @install_name !~ /^debian-/ -%>
-chroot /target ln -s /etc/init.d/crowbar_join.sh /etc/rc3.d/S80crowbar
-chroot /target ln -s /etc/init.d/crowbar_join.sh /etc/rc5.d/S80crowbar
-chroot /target ln -s /etc/init.d/crowbar_join.sh /etc/rc2.d/S80crowbar
-<% end -%>
+chmod +x /target/etc/init.d/crowbar_join
+chmod +x /target/update_system2.sh    
 chroot /target /update_system2.sh
 sync

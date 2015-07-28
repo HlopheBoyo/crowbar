@@ -15,6 +15,15 @@
 #
 class DeploymentsController < ApplicationController
 
+  def match
+    attrs = Deployment.attribute_names.map{|a|a.to_sym}
+    objs = Deployment.where(params.permit(attrs))
+    respond_to do |format|
+      format.html {}
+      format.json { render api_index Deployment, objs }
+    end
+  end
+  
   def index
     @list = Deployment.order("id DESC").all
     respond_to do |format|
@@ -60,13 +69,19 @@ class DeploymentsController < ApplicationController
   def update
     @deployment = Deployment.find_key params[:id]
     @deployment.update_attributes!(params.permit(:name,:description))
-    render api_show @deployment
+    respond_to do |format|
+      format.html { redirect_to deployment_path(@deployment.id) }
+      format.json { render api_show @deployment }
+    end
   end
 
   def destroy
     @deployment = Deployment.find_key params[:id]
     @deployment.destroy
-    render api_delete @deployment
+    respond_to do |format|
+      format.html { redirect_to deployment_path(@deployment.parent_id) }
+      format.json { render api_delete @deployment }
+    end
   end
 
   def status 
@@ -103,6 +118,91 @@ class DeploymentsController < ApplicationController
     render api_array out.to_json
   end
 
+  def monitor
+
+    @deployment = Deployment.find_key params[:id]
+    raise "deployment not found" unless @deployment
+
+    respond_to do |format|
+      format.html { }
+      format.json {
+
+        deployment_roles = DeploymentRole.where(deployment_id: @deployment.id).joins(:role).select("deployment_roles.*, roles.name as role_name, roles.cohort as role_cohort, roles.service as role_service").sort{|a,b|a.role_cohort <=> b.role_cohort}
+        
+        roles = deployment_roles.select { |r| !r.role_service }
+
+        state = @deployment.state rescue Deployment::ERROR
+
+        out = {
+          roles: [],
+          nodes: [],
+          services: [],
+          state: state,
+          status: Deployment::STATES[state]
+        }
+
+        sn = @deployment.system_node
+        out[:services] = NodeRole.where(node_id: sn.id).joins(:role).select("node_roles.*, roles.name as role_name").map do |service|
+          state = service.state || NodeRole::ERROR
+          {
+            state: state,
+            status: NodeRole::STATES[state],
+            path: node_role_path(service.id),
+            name: service.role_name,
+          }
+        end
+        
+        roleHash = {}
+
+        out[:roles] = roles.map do |role|
+          roleHash[role.role_name] = role.id
+          {
+            name: role.role_name,
+            id: role.id,
+          }
+        end
+        
+        node_roles = NodeRole.joins(:node,:role).where("nodes.system = 'f' and (nodes.deployment_id = #{@deployment.id} OR node_roles.deployment_id = #{@deployment.id})").select("node_roles.*, roles.name as role_name, nodes.name as node_name, nodes.admin as node_admin, nodes.available as node_avail, nodes.description as node_desc, nodes.alive as node_alive")
+
+        nodes = {}
+        node_roles.each do |nr|
+          n = nodes[nr.node_name]
+          unless n
+            n = {
+              name: nr.node_name,
+              admin: nr.node_admin,
+              id: nr.node_id,
+              roles: {},
+              description: nr.node_desc,
+              path: node_path(nr.node_id)
+            }
+            n[:led] = if !nr.node_avail
+              nr.node_alive ? 'reserved' : 'idle'
+            elsif !nr.node_alive
+              'off'
+            else
+              'on'
+            end
+            nodes[nr.node_name] = n
+          end
+
+          n[:roles][roleHash[nr.role_name]] = {
+            state: nr.state,
+            path: node_role_path(nr.role_id),
+          }
+        end
+        
+        nodes = nodes.values.sort{|a,b| a[:name] <=> b[:name]}
+        admins = nodes.select{|n| n[:admin]}
+        out[:nodes] = admins + (nodes - admins)
+
+        render api_array out.to_json
+      }
+    end
+    
+
+  end
+
   def anneal
     @deployment = Deployment.find_key params[:deployment_id]
     @list = NodeRole.peers_by_state(@deployment, NodeRole::TRANSITION).order("cohort,id")
@@ -134,7 +234,7 @@ class DeploymentsController < ApplicationController
       format.json {
         graph = []
         @deployment.node_roles.each do |nr|
-          vertex = { "id"=> nr.id, "name"=> "#{nr.node.alias}: #{nr.role.name}", "data"=> {"$color"=>"#83548B"}, "$type"=>"square", "$dim"=>15, "adjacencies" =>[] }
+          vertex = { "id"=> nr.id, "name"=> "#{nr.node.name}: #{nr.role.name}", "data"=> {"$color"=>"#83548B"}, "$type"=>"square", "$dim"=>15, "adjacencies" =>[] }
           nr.children.each do |c|
             vertex["adjacencies"] << { "nodeTo"=> c.id, "nodeFrom"=> nr.id, "data"=> { "$color" => "#557EAA" } }
           end

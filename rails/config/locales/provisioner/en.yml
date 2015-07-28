@@ -16,7 +16,8 @@
 en:
   common:
     roles:
-      provisioner-server: "PXE Image Host"
+      provisioner-service: "Provisioner Service"
+      provisioner-server: "Provisioner Server (PXE)"
       provisioner-base-images: "Available O/S"
       provisioner-dhcp-server: "DHCP Server"
       provisioner-repos: "O/S Repo Cache"

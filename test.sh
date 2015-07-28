@@ -14,10 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -e
 date
 
-export RAILS_ENV=test
+export RAILS_ENV=development
 
 # use the host proxy 
 if [[ $http_proxy ]] && ! pidof squid; then
@@ -34,22 +33,8 @@ cd /opt/opencrowbar/core
 . ./bootstrap.sh
 
 # install the database
+chef-solo -c /opt/opencrowbar/core/bootstrap/chef-solo.rb -o "${boot_recipes}"
+chef-solo -c /opt/opencrowbar/core/bootstrap/chef-solo.rb -o "${consul_recipes}"
 chef-solo -c /opt/opencrowbar/core/bootstrap/chef-solo.rb -o "${database_recipes}"
 
-. /etc/profile
-
-./setup/00-crowbar-rake-tests.install && \
-  ./setup/01-run-tests.install || {
-  echo "Failed to bootstrap and run tests"
-}
-
-# Talk about tests
-echo
-echo "To run tests:"
-echo "su - crowbar"
-echo "cd rails"
-echo "bundle exec rake test"
-echo "bundle exec rspec"
-echo
-
-/bin/bash -i
+exec ./run-tests.sh

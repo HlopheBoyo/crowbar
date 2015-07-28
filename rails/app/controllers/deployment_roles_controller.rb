@@ -15,6 +15,15 @@
 
 class DeploymentRolesController < ApplicationController
 
+  def match
+    attrs = DeploymentRole.attribute_names.map{|a|a.to_sym}
+    objs = DeploymentRole.where(params.permit(attrs))
+    respond_to do |format|
+      format.html {}
+      format.json { render api_index DeploymentRole, objs }
+    end
+  end
+  
   def index
     @list = if params.has_key? :deployment_id
               Deployment.find_key(params[:deployment_id]).deployment_roles
@@ -30,15 +39,15 @@ class DeploymentRolesController < ApplicationController
   end
 
   def show
+    # allow lookup by name
+    if params.has_key? :deployment
+      deployment = Deployment.find_key params[:deployment] || 'system'
+      role = Role.find_key params[:id]
+      @deployment_role = DeploymentRole.where(deployment_id: deployment.id, role_id: role.id).first
+    else
+      @deployment_role = DeploymentRole.find_key params[:id]
+    end
     respond_to do |format|
-      # allow lookup by name
-      if params.has_key? :deployment
-        deployment = Deployment.find_key params[:deployment] || 'system'
-        role = Role.find_key params[:id]
-        @deployment_role = DeploymentRole.where(deployment_id: deployment.id, role_id: role.id).first
-      else
-        @deployment_role = DeploymentRole.find_key params[:id]
-      end
       format.html {  }
       format.json { render api_show @deployment_role }
     end
@@ -69,10 +78,15 @@ class DeploymentRolesController < ApplicationController
   def destroy
     @deployment_role = DeploymentRole.find_key(params[:id])
     @deployment_role.destroy
+    respond_to do |format|
+      format.html { redirect_to deployment_path(@deployment_role.deployment_id) }
+      format.json { render api_delete @deployment_role }
+    end
+
     render api_delete @deployment_role
   end
 
-   def propose
+  def propose
     @deployment_role = DeploymentRole.find_key params[:deployment_role_id]
     @deployment_role.propose
     respond_to do |format|

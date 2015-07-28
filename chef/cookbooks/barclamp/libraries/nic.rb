@@ -37,6 +37,61 @@ class ::Nic
     ::Kernel.system("sysctl net.ipv6.conf.#{@nic}.disable_ipv6=0")
   end
 
+  # Update nic info
+  def self.update(node)
+    node.set[:crowbar_wall] = {} unless node[:crowbar_wall]
+    node.set[:crowbar_wall][:reservations] = {} unless node[:crowbar_wall][:reservations]
+
+    # Check for lldpcli and if that isn't found try the lldpctl (older form)
+    cmd=%x{which lldpcli}.chomp
+    if cmd and cmd != ""
+      cmd="#{cmd} show neighbors -f keyvalue"
+    else
+      cmd=%x{which lldpctl}.chomp
+      if cmd and cmd != ""
+        cmd="#{cmd} -f keyvalue"
+      end
+    end
+    if cmd and cmd != ""
+      # Mark all nics up so that we can eventually get all the switch info
+      nics.each do |nic|
+        nic.up
+      end
+
+      # Get the lldp data we have.
+      pi={}
+      data = `#{cmd}`
+      data.split("\n").each do |line|
+        parts = line.split("=", 2)
+        key = parts[0]
+        value = parts[1]
+
+        keys = key.split(".")
+        pos = pi
+        keys.each do |k|
+          break if k == 'unknown-tlvs'   # Skip painful data for now
+          if k == keys.last
+            if pos[k]
+              arr = [ pos[k], value ]
+              pos[k] = arr.flatten
+            else
+              pos[k] = value
+            end
+          else
+            pos[k] = {} unless pos[k]
+          end
+          pos = pos[k]
+        end
+      end
+
+      pi[:status] = "Success"
+      node.set[:crowbar_wall][:reservations][:ports] = pi
+    else
+      node.set[:crowbar_wall][:reservations][:ports] = { :status => "No lldpcli" }
+    end
+
+  end
+
   # Return an unsorted array of all nics on the system.
   def self.__nics
     res = []
@@ -159,10 +214,10 @@ class ::Nic
   # This kills all IP addresses and routes set to go through a nic.
   # Use with caution.
   def flush
-    self.dhcp_pid && kill_dhcp
+    self.dhcp_pid && kill_dhcp && sleep(3)
     run_ip("-4 route flush dev #{@nic}")
     run_ip("-6 route flush dev #{@nic}")
-    run_ip("addr flush dev #{@nic}")
+    run_ip("addr flush dev #{@nic} scope global")
     @addresses = ::Array.new
     self
   end
@@ -522,7 +577,7 @@ class ::Nic
           raise ::RuntimeError.new("Unable to load bonding module.")
         end
         # Kill any bonds that were automatically created
-        ifs = ::File.read(MASTER).strip.split.each do |i|
+        ::File.read(MASTER).strip.split.each do |i|
           self.kill_bond(i)
         end
       end

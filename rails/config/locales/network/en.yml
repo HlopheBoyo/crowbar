@@ -41,7 +41,12 @@ en:
     vlan: "VLAN"
     bridge: "Bridge"
     team: "Team"
+    pbr: "PBR"
+    network: "Network"
+    pref: "Pref"
     conduit: "Conduit(s)"
+    group: "Group"
+    category: "Category"
     ranges: "Range(s)"
     first: "First IP"
     last: "Last IP"
@@ -73,6 +78,13 @@ en:
     index:
       title: "Network Ranges"
       network: "Network"
+      <<: *network_common
+  network_routers:
+    index:
+      title: "Network Routers"
+      <<: *network_common
+    show:
+      title: "Router Detail"
       <<: *network_common
   roles:
     index:

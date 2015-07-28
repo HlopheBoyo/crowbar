@@ -13,6 +13,17 @@
 # limitations under the License.
 #
 
+barclamp:
+  name: "chef"
+  parent: "core"
+  description: "Chef CMDB & DevOps Framework"
+  display: "Chef"
+  version: "2.3"
+  source_url: "https://github.com/opencrowbar/core"
+  license: "Apache 2"
+  license_url: "https://github.com/opencrowbar/core/blob/develop/doc/licenses/README.md"
+
+
 roles:
   - name: chef-server
     jig: script
@@ -21,15 +32,18 @@ roles:
       - name: chef-server_port
         description: "The TCP port that the chef server is listening on"
         map: 'chefjig/server/port'
+        default: 4646
       - name: chef-server_protocol
         description: "The protocol used to talk to the chef server"
         map: 'chefjig/server/protocol'
+        default: http
       - name: chef-server_url
         description: 'URL that clients should use to talk to the chef server'
         map: 'chefjig/server/url'
       - name: 'chef-server_admin_client_name'
         description: 'The name of the client with admin privs that Crowbar should use'
         map: 'chefjig/server/client-name'
+        default: "crowbar"
       - name: chef-server_admin_client_key
         description: 'The private key for the admin client that Crowbar should use.'
         map: 'chefjig/server/client-key'

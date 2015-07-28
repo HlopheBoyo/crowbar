@@ -43,6 +43,6 @@ Crowbar::Application.configure do
 
   # Disable delivery errors, bad email addresses will be ignored
   # config.action_mailer.raise_delivery_errors = false
-  config.crowbar.version = '2.2'
-  
+  config.crowbar.version = '2.3'
+  config.crowbar.docs = "https://github.com/opencrowbar/core/tree/master/doc"
 end

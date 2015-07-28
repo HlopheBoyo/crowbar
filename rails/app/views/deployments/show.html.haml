@@ -3,23 +3,16 @@
 
 %table{:width=>'100%'}
   %tr
-    %td{:style=>"width:16px;"}
-      .led{:class => Deployment::STATES[state], :title=>Deployment.state_name(state)}
-    %td
-      %h2
-        - if @deployment.parent
-          = link_to @deployment.parent.name, deployment_path(@deployment.parent.id), :title => @deployment.parent.description
-          = "/"
-        = link_to @deployment.name, deployment_path(@deployment.id), :title => @deployment.description
+    = render :partial => "header", :locals => { :deployment => @deployment }
     %td
       - if state == Deployment::PROPOSED
-        = form_for :add_role, :'data-remote' => true, :url => deployment_roles_path(:deployment_id=>@deployment.id, :version=>'v2'), :html => { :method=>:post, :'data-type' => 'html',  :class => "formtastic" } do |f|
-          - aroles = @deployment.available_roles
+        = form_for :add_role, :'data-remote' => true, :url => deployment_roles_path(:deployment_id=>@deployment.id, :api_version=>'v2'), :html => { :method=>:post, :'data-type' => 'html',  :class => "formtastic" } do |f|
+          - aroles = @deployment.available_roles.sort_by{:name}
           - if current_user and current_user.settings(:ui).milestone_roles
             - aroles.keep_if {| r | r.milestone }
           - if aroles.length > 0
             = hidden_field_tag :deployment_id, @deployment.id
-            = f.collection_select :role_id, aroles, :id, :name_i18n
+            = f.collection_select :role_id, aroles, :id, :name
             %input.button{:type => "submit", :name => "add", :value => t('.add_role')}
     %td{:align=>'right'}
       %h3= t '.services'
@@ -57,7 +50,7 @@
         - @roles.each do |dr|
           %th.dr{:id=>dr.id}
             %div
-              - name = dr.role.name_safe.truncate(30).html_safe
+              - name = dr.role.name_safe.html_safe
               = link_to name, deployment_role_path(dr.id), :title=>dr.role.description
     %tbody
       - @nodes.each do |node|
@@ -74,7 +67,7 @@
             - unless working
               = image_tag "icons/led/#{node_led}.png", {title: t(node_led, scope: "common.state")}
           %td.nodename
-            = link_to node.alias, node_path(node.id), :title=>node.description
+            = link_to node.name, node_path(node.id), :title=>node.description
             - unless node.deployment_id == @deployment.id
               = "("
               = link_to node.deployment.name, deployment_path(node.deployment_id), :title=>node.deployment.description
@@ -92,7 +85,7 @@
               - elsif state == Deployment::PROPOSED
                 - display = (dr.role.noop? ? "inline" : "none" )
                 %span{:style=>"margin-left:30%; display:#{display}"}
-                  = link_to image_tag('icons/add.png'), node_roles_path(:deployment_id=>@deployment.id, :format=>:json, :version=>'v2', :node_id=>node.id, :role_id=>dr.role.id), :'data-remote'=>true, :method=>:post, :class=>'node_role_add'
+                  = link_to image_tag('icons/add.png'), node_roles_path(:deployment_id=>@deployment.id, :format=>:json, :api_version=>'v2', :node_id=>node.id, :role_id=>dr.role.id), :'data-remote'=>true, :method=>:post, :class=>'node_role_add'
               - else
                 %span{:style=>"width:16px; margin:0px auto; text-align:center"}= "-"
   - else
@@ -106,9 +99,12 @@
   var height = 100;
 
   function update() {
-    $.ajaxSetup({ timeout: 1000 });
+    $.ajaxSetup({ timeout: #{current_user.settings(:ui).fast_refresh} });
     if (#{state != Deployment::PROPOSED}) {
-      location.reload();
+      var elasped = parseInt($('span#elapsed_heartbeat').text());
+      if (elasped < 3600) {
+        location.reload();
+      }
     }
   };
 

@@ -17,6 +17,9 @@
 # Install and start lldpd
 #
 
+# This is a little bit of a hack for now.
+return if node[:platform] == "coreos"
+
 package_name = "lldpd"
 service_name = "lldpd"
 
@@ -26,7 +29,7 @@ when "centos"
   service_name = "lldpad" if node[:platform_version] == "6.5"
 end
 
-package package_name
+package package_name unless system("which #{service_name}")
 
 service service_name do
   action [ :enable, :start ]

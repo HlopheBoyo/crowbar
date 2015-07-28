@@ -21,16 +21,9 @@ end
 
 repositories = (node[:crowbar][:provisioner][:server][:repositories][os_token] || Hash.new rescue Hash.new)
 
-online = node[:crowbar][:provisioner][:server][:online] rescue nil
-proxy = node[:crowbar][:provisioner][:server][:proxy]
-webserver = node[:crowbar][:provisioner][:server][:webserver]
-
-# Once the local proxy service is set up, we need to use it.
-proxies = {
-  "http_proxy" => "http://#{proxy}",
-  "https_proxy" => "http://#{proxy}",
-  "no_proxy" => (["127.0.0.1","::1"] + node.all_addresses.map{|a|a.network.to_s}.sort).join(",")
-}
+online = node[:crowbar][:provisioner][:server][:online]
+proxy = node[:crowbar][:proxy][:servers].first[:url]
+webserver = node[:crowbar][:provisioner][:server][:webservers].first[:url]
 
 ["/etc/gemrc","/root/.gemrc"].each do |rcfile|
   template rcfile do
@@ -39,17 +32,6 @@ proxies = {
               :webserver => webserver,
               :proxy => proxy)
   end
-end
-
-# Set up proper environments and stuff
-template "/etc/environment" do
-  source "environment.erb"
-  variables(:values => proxies)
-end
-
-template "/etc/profile.d/proxy.sh" do
-  source "proxy.sh.erb"
-  variables(:values => proxies)
 end
 
 case node["platform"]
@@ -61,14 +43,16 @@ when "ubuntu","debian"
 when "redhat","centos","fedora"
   bash "add yum proxy" do
     code <<EOC
-grep -q -F 'proxy=http://#{proxy}' /etc/yum.conf && exit 0
+grep -q -F 'proxy=#{proxy}' /etc/yum.conf && exit 0
 if ! grep -q '^proxy=http' /etc/yum.conf; then
-  echo 'proxy=http://#{proxy}' >> /etc/yum.conf
+  echo 'proxy=#{proxy}' >> /etc/yum.conf
 else
-    sed -i '/^proxy/ s@http://.*@http://#{proxy}@' /etc/yum.conf
+    sed -i '/^proxy/ s@http://.*@#{proxy}@' /etc/yum.conf
 fi
 EOC
   end
+when "coreos"
+  # Do nothing
 else
   raise "Cannot handle configuring the proxy for OS #{node["platform"]}"
 end
@@ -159,7 +143,7 @@ when "redhat","centos","fedora"
         bash "fetch /var/cache/#{file}" do
           not_if "test -f '/var/cache/#{file}' "
           code <<EOC
-export http_proxy=http://#{proxy}
+export http_proxy=#{proxy}
 curl -o '/var/cache/#{file}' -L '#{url}'
 rpm -Uvh '/var/cache/#{file}' || :
 EOC

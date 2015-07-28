@@ -164,13 +164,13 @@ By default OpenCrowbar will configure DNS, NTP, and DHCP to run on the admin nod
 
 It is also possable to utilize services that are already installed in the enviornment and choose to have OpenCrowbar not install them on the Admin server.  These configuirations are described [here] (https://github.com/opencrowbar/core/tree/master/doc/deployment-guide/external-services.md)
 
-Execute the following command:
+Execute the following commands:
 
 ```
   /opt/opencrowbar/core/production.sh <FQDN of the admin node>
 ```
 
-Once this is complete, the admin node is configured.
+Once this is complete, the admin node is configured.  
 
 ## Start Using OpenCrowbar
 

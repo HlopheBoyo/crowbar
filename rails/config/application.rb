@@ -31,6 +31,8 @@ module Crowbar
     # -- all .rb files in that directory are automatically loaded.
     config.crowbar = ActiveSupport::OrderedOptions.new 
     config.crowbar.version = '2.x'
+    config.crowbar.docs = "https://github.com/opencrowbar/core/tree/develop/doc"
+    config.crowbar.bootstrap_key = 'opencrowbar/private/bootstrap'
 
     # Custom directories with classes and modules you want to be autoloadable.
     config.autoload_paths += %W(#{config.root}/lib)
@@ -92,16 +94,9 @@ module Crowbar
     I18n.config.enforce_available_locales = true
 
     SERVER_PID = %x[ps ax | grep "puma" | grep -v grep].split(' ')[0]  # get a consistent number that changes when the server restarts
+    Que.worker_count = 0
+    Que.mode = :off
 
-    config.jobs = ActiveSupport::OrderedOptions.new
-    # Controls whether or not workers report heartbeats
-    config.jobs.heartbeat_enabled = true
-    # How often workers should send heartbeats
-    config.jobs.heartbeat_interval_seconds = 15
-    # How long a worker can go without sending a heartbeat before they're considered dead
-    config.jobs.heartbeat_timeout_seconds = 3 * 15
-    # How often to check for dead workers
-    config.jobs.dead_worker_polling_interval_seconds = 15
-
+    RestClient.log = Rails.logger
   end
 end

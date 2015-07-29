@@ -12,9 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-source 'http://rubygems.org'
+source 'https://rubygems.org'
 
-gem 'rails', '~> 4.0.10'
+gem 'rails', '~> 4.0.13'
+gem 'audited-activerecord', '~> 4.2.0'
 gem 'pg'
 gem 'haml'
 # Pinned until we fix our stypesheets for sass ~> 3.3.0
@@ -29,30 +30,32 @@ gem 'schema_plus'
 gem 'kwalify'
 gem 'maruku'
 gem 'puma'
-#gem 'amqp'
+gem 'bunny'
 gem 'xml-simple'
 gem 'daemons'
 gem 'active_scaffold'
 gem 'devise', "~>3.0.0"
 gem 'rails_config'
-gem 'delayed_job'
-gem 'delayed_job_active_record'
+gem 'que'
 gem 'ledermann-rails-settings', :require => 'rails-settings'
 gem 'jquery-rails'
 gem 'net-ssh'
-gem 'chef', ">= 11.16.4", '< 12.0'
+gem 'chef', "~> 12.3"
 gem 'open4'
 gem 'structurematch', '~> 0.1.1'
-gem 'diplomat', '>= 0.2.2'
+gem 'diplomat'
+gem 'httpclient'
+gem 'rest-client'
 
 group :development, :test do
   gem 'coveralls'
-  gem "factory_girl", "<3.0"
-  gem "factory_girl_rails", "< 3.0"
-  gem 'rspec-rails', '~> 3.0.0'
-  gem "email_spec", ">= 1.2.1"
-  gem "database_cleaner", ">= 0.7.2"
-  gem "launchy", ">= 2.1.0"
+  gem "factory_girl"
+  gem "factory_girl_rails"
+  gem 'faker'
+  gem 'rspec-rails', '=3.2.1'
+  gem "email_spec"
+  gem "database_cleaner"
+  gem "launchy"
   gem "simplecov"
 end
 

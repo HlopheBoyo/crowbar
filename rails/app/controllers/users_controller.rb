@@ -18,6 +18,16 @@ class UsersController < ApplicationController
   helper_method :is_edit_mode?
 
   add_help(:index,[],[:get])
+
+  def match
+    attrs = User.attribute_names.map{|a|a.to_sym}
+    objs = User.where(params.permit(attrs))
+    respond_to do |format|
+      format.html {}
+      format.json { render api_index User, objs }
+    end
+  end
+  
   def index
     @users = User.all
     respond_to do |format|
@@ -47,6 +57,10 @@ class UsersController < ApplicationController
   def update
     @user = User.find_by_id_or_username params[:id]
     @user.update_attributes!(user_params)
+    if params[:digest]
+      @user.digest_password(params[:password])
+      @user.save!
+    end
     render api_show @user
   end
 

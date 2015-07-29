@@ -15,8 +15,21 @@
 
 class RoleRequireAttrib < ActiveRecord::Base
 
+  audited
+
   belongs_to      :role
   has_one         :attrib,      :class_name => "Attrib", :foreign_key => "name", :primary_key => "attrib_name"
+
+  after_create :resolve_requires
+
+  def resolve!
+    transaction do
+      return unless attrib
+      return unless attrib.role
+      return if RoleRequire.find_by(role_id: role_id, requires: attrib.role.name)
+      RoleRequire.create!(role_id: role_id, requires: attrib.role.name)
+    end
+  end
 
   def attrib_at
     aat = read_attribute("attrib_at") || attrib.map
@@ -34,7 +47,9 @@ class RoleRequireAttrib < ActiveRecord::Base
     res
   end
 
-  def get(from)
-    map(attrib.get(from))
+  private
+
+  def resolve_requires
+    resolve!
   end
 end

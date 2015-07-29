@@ -15,6 +15,15 @@
 class NetworkRangesController < ::ApplicationController
   respond_to :json
 
+  def match
+    attrs = NetworkRange.attribute_names.map{|a|a.to_sym}
+    objs = NetworkRange.where(params.permit(attrs))
+    respond_to do |format|
+      format.html {}
+      format.json { render api_index NetworkRange, objs }
+    end
+  end
+  
   def index
     @list = if params.has_key? :network_id or params.has_key? :network
               network =  Network.find_key params[:network_id] || params[:network]
@@ -29,8 +38,12 @@ class NetworkRangesController < ::ApplicationController
   end
 
   def show
-    network = Network.find_key params[:network_id]
-    @range = network.network_ranges.find_key(params[:id]) rescue nil
+    if params[:network_id]
+      network = Network.find_key params[:network_id]
+      @range = network.network_ranges.find_key(params[:id])
+    else
+      @range = NetworkRange.find_key(params[:id])
+    end
     respond_to do |format|
       format.html {
                     @list = [@range]
@@ -42,6 +55,7 @@ class NetworkRangesController < ::ApplicationController
 
   def create
     params[:network_id] = Network.find_key(params[:network]).id if params.has_key? :network
+    params[:overlap] = false unless params.key?(:overlap)
     params.require(:network_id)
     params.require(:name)
     params.require(:first)
@@ -52,6 +66,8 @@ class NetworkRangesController < ::ApplicationController
                                                  :last,
                                                  :conduit,
                                                  :vlan,
+                                                 :team_mode,
+                                                 :overlap,
                                                  :use_vlan,
                                                  :use_bridge,
                                                  :use_team)
@@ -70,6 +86,8 @@ class NetworkRangesController < ::ApplicationController
                                                     :last,
                                                     :conduit,
                                                     :vlan,
+                                                    :team_mode,
+                                                    :overlap,
                                                     :use_vlan,
                                                     :use_bridge,
                                                     :use_team))

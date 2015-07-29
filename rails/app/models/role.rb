@@ -10,17 +10,19 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License.  
+# limitations under the License.
 
 class Role < ActiveRecord::Base
 
-  class Role::MISSING_DEP < Exception
+  audited
+
+  class Role::MISSING_DEP < StandardError
   end
 
-  class Role::MISSING_JIG < Exception
+  class Role::MISSING_JIG < StandardError
   end
 
-  class Role::CONFLICTS < Exception
+  class Role::CONFLICTS < StandardError
   end
 
   validates_uniqueness_of   :name,  :scope => :barclamp_id
@@ -66,6 +68,13 @@ class Role < ActiveRecord::Base
     Role.where("id in (select role_id from all_role_requires where required_role_id = ?)",id).order("cohort ASC")
   end
 
+  def note_update(val)
+    transaction do
+      self.notes = self.notes.deep_merge(val)
+      save!
+    end
+  end
+  
   # incremental update (merges with existing)
   def template_update(val)
     Role.transaction do
@@ -74,29 +83,30 @@ class Role < ActiveRecord::Base
   end
 
   # State Transistion Overrides
-
+  # These are called after the relavent noderole has been saved to the
+  # database, so they SHOULD NOT be used for anything that can fail.
   def on_error(node_role, *args)
-    Rails.logger.debug "No override for #{self.class.to_s}.on_error event: #{node_role.role.name} on #{node_role.node.name}"
+    true
   end
 
   def on_active(node_role, *args)
-    Rails.logger.debug "No override for #{self.class.to_s}.on_active event: #{node_role.role.name} on #{node_role.node.name}"
+    true
   end
 
   def on_todo(node_role, *args)
-    Rails.logger.debug "No override for #{self.class.to_s}.on_todo event: #{node_role.role.name} on #{node_role.node.name}"
+    true
   end
 
   def on_transition(node_role, *args)
-    Rails.logger.debug "No override for #{self.class.to_s}.on_transition event: #{node_role.role.name} on #{node_role.node.name}"
+    true
   end
 
   def on_blocked(node_role, *args)
-    Rails.logger.debug "No override for #{self.class.to_s}.on_blocked event: #{node_role.role.name} on #{node_role.node.name}"
+    true
   end
 
   def on_proposed(node_role, *args)
-    Rails.logger.debug "No override for #{self.class.to_s}.on_proposed event: #{node_role.role.name} on #{node_role.node.name}"
+    true
   end
 
   # Event triggers for node creation and destruction.
@@ -129,12 +139,59 @@ class Role < ActiveRecord::Base
     true
   end
 
+  # Event triggers for node creation.
+  # roles should override if they want to handle network addition
+  def on_network_create(network)
+    true
+  end
+
+  # Event triggers for network destruction.
+  # roles should override if they want to handle network destruction
+  def on_network_delete(network)
+    true
+  end
+
+  # Event hook that will be called every time a network is saved if any attributes changed.
+  # Roles that are interested in watching networks to see what has changed should
+  # implement this hook.
+  #
+  # This does not include IP allocation/deallocation.
+  def on_network_change(network)
+    true
+  end
+
+  # Event hook that will be called every time a network allocation is created
+  def on_network_allocation_create(na)
+    true
+  end
+
+  # Event hook that will be called every time a network allocation is deleted
+  def on_network_allocation_delete(na)
+    true
+  end
+
+  # Event hook that is called whenever a noderole or a deployment role for this role is
+  # committed.  It is called inline and synchronously with the actual commit, so it must be fast.
+  # If it throws an exception, the commit will fail and the transaction around the commit
+  # will be rolled back.
+  def on_commit(obj)
+    true
+  end
+
+  # Event hook that is called after a noderole is created, but before it is
+  # committed.  This can be used to block the creation of a noderole by
+  # throwing an exception.
+  def on_node_bind(nr)
+    true
+  end
+
   def noop?
     jig.name.eql? 'noop'
   end
 
   def name_i18n
-    I18n.t(name, :default=>name, :scope=>'common.roles')
+    #I18n.t(name, :default=>name, :scope=>'common.roles')
+    name.truncate(35)
   end
 
   def name_safe
@@ -143,7 +200,7 @@ class Role < ActiveRecord::Base
 
   def github
     baseurl = barclamp.source_url
-    baseurl ||= barclamp.parent.source_url    
+    baseurl ||= barclamp.parent.source_url
     return I18n.t('unknown') unless baseurl
     "#{baseurl}\/tree\/master\/#{jig.name}\/roles\/#{name}"
 
@@ -168,6 +225,7 @@ class Role < ActiveRecord::Base
   # Make sure there is a deployment role for ourself in the deployment.
   def add_to_deployment(dep)
     DeploymentRole.unsafe_locked_transaction do
+      Rails.logger.info("Role: Creating deployment_role for #{self.name} in #{dep.name}")
       DeploymentRole.find_or_create_by!(role_id: self.id, deployment_id: dep.id)
     end
   end
@@ -209,10 +267,10 @@ class Role < ActiveRecord::Base
     # Find all of the RoleRequires that refer to us,
     # and resolve them.  This will also update the cohorts if needed.
     Role.transaction do
-      role_requires_children.where(required_role_id: nil).each do |rr|
+      RoleRequire.where(requires: name, required_role_id: nil).each do |rr|
         rr.resolve!
       end
-      return true unless jig && jig.client_role &&
+      return true unless jig && jig.client_role_name &&
         !RoleRequire.exists?(role_id: id,
                              requires: jig.client_role_name)
       # If our jig has already been loaded and it has a client role,

@@ -13,6 +13,9 @@
 # limitations under the License.
 #
 
+# This is a little bit of a hack for now.
+return if node[:platform] == "coreos"
+
 package "rsyslog" unless Kernel.system("which rsyslogd")
 
 # Don't configure this node as a logging client if it is already a server.
@@ -36,7 +39,7 @@ case node[:platform]
 end
 
 service "rsyslog" do
-  provider Chef::Provider::Service::Upstart if node[:platform] == "ubuntu"
+  provider Chef::Provider::Service::Upstart if node[:platform] == "ubuntu" && !File.executable?("/bin/systemctl")
   service_name "syslog" if node[:platform] == "suse"
   supports :restart => true, :status => true, :reload => true
   running true

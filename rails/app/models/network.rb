@@ -14,16 +14,21 @@
 
 class Network < ActiveRecord::Base
 
-  ADMIN_NET      = "admin"
-  BMC_NET        = "bmc"
+  ADMIN_CATEGORY = "admin"
+  BMC_CATEGORY   = "bmc"
   V6AUTO         = "auto"   # if this changes, update the :v6prefix validator too!
   DEFAULTCONDUIT = '1g1'
   BMCCONDUIT     = 'bmc'
+
+  audited
 
   validate        :check_network_sanity
   after_commit    :add_role, on: :create
   after_save      :auto_prefix
   before_destroy  :remove_role
+  after_commit :on_create_hooks, on: :create
+  after_commit :on_change_hooks, on: :update
+  after_commit :on_destroy_hooks, on: :destroy
 
   validates_format_of :v6prefix, :with=>/auto|([a-f0-9]){1,4}:([a-f0-9]){1,4}:([a-f0-9]){1,4}:([a-f0-9]){1,4}/, :message => I18n.t("db.v6prefix", :default=>"Invalid IPv6 prefix."), :allow_nil=>true
 
@@ -35,7 +40,24 @@ class Network < ActiveRecord::Base
   alias_attribute :router,      :network_router
   alias_attribute :allocations, :network_allocations
 
+  scope :in_category,   ->(c) { where(:category => c) }
+
   belongs_to :deployment
+
+  def self.lookup_network(ipstring, category = "admin")
+    the_ip_network = IP.coerce(ipstring).network
+    the_network = nil
+    Network.in_category(category).each do |n|
+      n.ranges.each do |r|
+        if (r.first.network == the_ip_network)
+          the_network = n
+          break
+        end
+      end
+      break if the_network
+    end
+    the_network
+  end
 
   def self.address(params)
     raise "Must pass a hash of args" unless params.kind_of?(Hash)
@@ -71,44 +93,46 @@ class Network < ActiveRecord::Base
   def self.check_sanity(n)
     res = []
     # First, check the conduit to be sure it is sane.
-    intf_re =  /^bmc|([-+?]?)(\d{1,3}[mg])(\d+)$/
+    intf_re =  /^bmc|^([-+?]?)(\d{1,3}[mg])(\d+)$/
     if n.conduit.nil? || n.conduit.empty?
-      res << "Conduit definition cannot be empty"
-    end
-    intfs = n.conduit.split(",").map{|intf|intf.strip}
-    ok_intfs, failed_intfs = intfs.partition{|intf|intf_re.match(intf)}
-    unless failed_intfs.empty?
-      res << "Invalid abstract interface names in conduit: #{failed_intfs.join(", ")}"
-    end
-    if intfs.length > 1
-      matches = intfs.map{|intf|intf_re.match(intf)}
-      tmpl = matches[0]
-      if ! matches.all?{|i|(i[1] == tmpl[1]) && (i[2] == tmpl[2])}
-        res << "Not all abstract interface names have the same speed and flags: #{n.conduit}"
+      res << [:conduit, "Conduit definition cannot be empty"]
+      intfs = []
+    else
+      intfs = n.conduit.split(",").map{|intf|intf.strip}
+      ok_intfs, failed_intfs = intfs.partition{|intf|intf_re.match(intf)}
+      unless failed_intfs.empty?
+        res << [:conduit, "Invalid abstract interface names in conduit: #{failed_intfs.join(", ")}"]
+      end
+      if ok_intfs.length > 1
+        matches = ok_intfs.map{|intf|intf_re.match(intf)}
+        tmpl = matches[0]
+        if ! matches.all?{|i|(i[1] == tmpl[1]) && (i[2] == tmpl[2])}
+          res << [:conduit, "Not all abstract interface names have the same speed and flags: #{n.conduit}"]
+        end
       end
     end
 
     # Check to see that requested VLAN information makes sense.
-    if n.use_vlan && !(1..4095).member?(n.vlan)
-      res << "VLAN #{n.vlan} not sane"
+    if n.use_vlan && !(1..4094).member?(n.vlan)
+      res << [:vlan, "VLAN #{n.vlan} not sane"]
     end
 
     # Check to see if our requested teaming makes sense.
     if n.use_team
       if intfs.length < 2
-        res << "Want bonding, but requested conduit #{n.conduit} has one member"
+        res << [:conduit, "Want bonding, but requested conduit #{n.conduit} has too few members"]
       elsif intfs.length > 8
-        res << "Want bonding, but requested conduit #{n.conduit} has too many members"
+        res << [:conduit, "Want bonding, but requested conduit #{n.conduit} has too many members"]
       end
-      res << "Invalid bonding mode" unless (0..6).member?(n.team_mode)
-    elsif intfs.length != 1
+      res << [:team_mode, "Invalid bonding mode"] unless (0..6).member?(n.team_mode)
+    elsif intfs.length > 1
       # Conduit can only contain one abstract interface if we don't want bonding.
-      res << "Do not want bonding, but requested conduit #{n.conduit} has multiple members"
+      res << [:conduit, "Do not want bonding, but requested conduit #{n.conduit} has multiple members"]
     end
 
     # Should be obvious, but...
     unless n.name && !n.name.empty?
-      res << "No name"
+      res << [:name, "No name"]
     end
     res
   end
@@ -131,6 +155,23 @@ class Network < ActiveRecord::Base
     res
   end
 
+  def auto_ranges(node)
+    res = []
+    if node.is_admin? && ranges.exists?(name: "admin")
+      res << ranges.find_by(name: "admin")
+    else
+      res << ranges.find_by(name: "host")
+    end
+    res << ranges.find_by(name: "host-v6")
+    res.compact
+  end
+
+  def auto_allocate(node)
+    auto_ranges(node).map do |range|
+      range.allocate(node)
+    end
+  end
+
   def role
     bc = Barclamp.where(name: "network").first
     bc.roles.where(name: "network-#{name}").first
@@ -146,21 +187,26 @@ class Network < ActiveRecord::Base
       # do we have an existing NR?
       nr = NodeRole.where(:node_id => node.id, :role_id => role.id).first
       # if not, we have to create one
-      if nr.nil?
-        # we need to find a reasonable deployemnt - use the current system head
-        snap = Deployment.system
-        nr = role.add_to_node_in_deployment(node,snap)
-      end
+      nr ||= role.add_to_node(node)
     end
     nr
   end
 
   private
 
+  def create_auto_v6_range
+    if v6prefix && !NetworkRange.find_by(name: "host-v6", network_id: id)
+      NetworkRange.create!(name: "host-v6",
+                           first: "#{v6prefix}::1/64",
+                           last:  ((IP.coerce("#{v6prefix}::/64").broadcast) - 1).to_s,
+                           network_id: id)
+    end
+  end
+
   # for auto, we add an IPv6 prefix
   def auto_prefix
     # Add our IPv6 prefix.
-    if (name == ADMIN_NET and v6prefix.nil?) || (v6prefix == V6AUTO)
+    if (v6prefix == V6AUTO)
       Role.logger.info("Network: Creating automatic IPv6 prefix for #{name}")
       user = User.admin.first
       # this config code really needs to move to Crowbar base
@@ -173,6 +219,7 @@ class Network < ActiveRecord::Base
         update_column("v6prefix", sprintf("#{cluster_prefix}:%04x",id))
       end
       Rails.logger.info("Network: Created #{sprintf("#{cluster_prefix}:%04x",id)} for #{name}")
+      create_auto_v6_range
     end
   end
 
@@ -183,10 +230,7 @@ class Network < ActiveRecord::Base
       Rails.logger.info("Network: Adding role and attribs for #{role_name}")
       bc = Barclamp.find_key "network"
       Role.transaction do
-        NetworkRange.create!(name: "host-v6",
-                             first: "#{v6prefix}::1/64",
-                             last:  ((IP.coerce("#{v6prefix}::/64").broadcast) - 1).to_s,
-                             network_id: id) if v6prefix
+        create_auto_v6_range
         r = Role.find_or_create_by!(name: role_name,
                                     type: "BarclampNetwork::Role",   # force
                                     jig_name: Rails.env.production? ? "chef" : "test",
@@ -195,12 +239,13 @@ class Network < ActiveRecord::Base
                                     library: false,
                                     implicit: true,
                                     milestone: true,    # may need more logic later, this is safest for first pass
-                                    bootstrap: (self.name.eql? ADMIN_NET),
-                                    discovery: (self.name.eql? ADMIN_NET)  )
+                                    bootstrap: false,   # don't bootstrap networks anymore.
+                                    discovery: false  ) # don't discovery networks anymore.
         RoleRequire.create!(:role_id => r.id, :requires => "network-server")
         # The admin net must be bound before any other network can be bound.
-        RoleRequire.create!(:role_id => r.id, :requires => "network-admin") unless name.eql? ADMIN_NET
         RoleRequireAttrib.create!(role_id: r.id, attrib_name: 'network_interface_maps')
+        RoleRequireAttrib.create!(role_id: r.id, attrib_name: 'network-current-config')
+        RoleRequireAttrib.create!(role_id: r.id, attrib_name: 'network-wanted-config')
         # attributes for jig configuraiton
         Attrib.create!(:role_id => r.id,
                          :barclamp_id => bc.id,
@@ -274,29 +319,68 @@ class Network < ActiveRecord::Base
     role.destroy! if role  # just in case the role was lost, we still want to be able to delete
     # Also destroy the hints
     ["v4addr","v6addr"].each do |n|
-      Attrib.destroy_all(name: "hint-#{name}-v4addr")
+      Attrib.destroy_all(name: "hint-#{name}-#{n}")
     end
   end
 
   def check_network_sanity
 
     Network.check_sanity(self).each do |err|
-      errors.add("Network #{name}: #{err}")
+      errors.add(err[0], "Network #{name}: #{err[1]}")
     end
 
     # Check to see that this network's conduits either overlap perfectly or not at all
     # with conduits on other networks.  Ranges are not considered here.'
     Network.all.each do |net|
-      unless Network.check_conduit_sanity(conduit,net.conduit)
-        errors.add("Network #{name}: Conduit mapping overlaps with network #{net.name}")
+      unless Network.check_conduit_sanity(conduit, net.conduit)
+        errors.add(:conduit, "Network #{name}: Conduit mapping overlaps with network #{net.name}")
       end
-    end
-
+    end if conduit
 
     # We also must have a deployment
     unless deployment
-      errors.add("Network #{name}: Cannot create a network without binding it to a deployment")
+      errors.add(:deployment_id, "Network #{name}: Cannot create a network without binding it to a deployment")
     end
 
   end
+
+  # Call the on_network_delete hooks.
+  def on_destroy_hooks
+    # do the low cohorts last
+    Rails.logger.info("Network: calling all role on_network_delete hooks for #{name}")
+    Role.all_cohorts_desc.each do |r|
+      begin
+        Rails.logger.info("Network: Calling #{r.name} on_network_delete for #{self.name}")
+        r.on_network_delete(self)
+      rescue Exception => e
+        Rails.logger.error "Network #{name} attempting to cleanup role #{r.name} failed with #{e.message}"
+      end
+    end
+  end
+
+  # Call the on_network_change hooks.
+  def on_change_hooks
+    # do the low cohorts last
+    Rails.logger.info("Network: calling all role on_network_change hooks for #{name}")
+    Role.all_cohorts_desc.each do |r|
+      begin
+        Rails.logger.info("Network: Calling #{r.name} on_network_change for #{self.name}")
+        r.on_network_change(self)
+      rescue Exception => e
+        Rails.logger.error "Network #{name} attempting to change role #{r.name} failed with #{e.message}"
+      end
+    end
+  end
+
+  def on_create_hooks
+    # Call all role on_network_create hooks with self.
+    # These should happen synchronously.
+    # do the low cohorts first
+    Rails.logger.info("Network: calling all role on_network_create hooks for #{name}")
+    Role.all_cohorts.each do |r|
+      Rails.logger.info("Network: Calling #{r.name} on_network_create for #{self.name}")
+      r.on_network_create(self)
+    end
+  end
+
 end

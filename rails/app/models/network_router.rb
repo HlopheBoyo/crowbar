@@ -14,10 +14,17 @@
 
 class NetworkRouter < ActiveRecord::Base
 
+  audited
+
   validate    :router_is_sane
   before_save :infer_address
+  after_commit :on_change_hooks
   
   belongs_to     :network
+
+  def as_json(*args)
+    super(*args).merge({"address" => address.to_s})
+  end
 
   def address
     IP.coerce(read_attribute("address"))
@@ -27,6 +34,10 @@ class NetworkRouter < ActiveRecord::Base
     write_attribute("address",IP.coerce(addr).to_s)
   end
 
+  def as_json(options)
+    {id: id, network_id: network_id, address: address.to_s, pref: pref, created_at: created_at, updated_at: updated_at}
+  end
+
   private
 
   def infer_address
@@ -34,6 +45,21 @@ class NetworkRouter < ActiveRecord::Base
       write_attribute("address", network.network_ranges.first.first)
     end
   end
+
+  # Call the on_network_change hooks.
+  def on_change_hooks
+    # do the low cohorts last
+    Rails.logger.info("NetworkRouter: calling all role on_network_change hooks for #{network.name}")
+    Role.all_cohorts_desc.each do |r|
+      begin
+        Rails.logger.info("NetworkRouter: Calling #{r.name} on_network_change for #{self.network.name}")
+        r.on_network_change(self.network)
+      rescue Exception => e
+        Rails.logger.error "NetworkRouter #{self.name} attempting to change role #{r.name} failed with #{e.message}"
+      end
+    end
+  end
+
 
   def router_is_sane
     # A router is sane when its address is in a subnet covered by one of its ranges

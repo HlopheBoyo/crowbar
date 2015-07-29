@@ -15,9 +15,23 @@
 #
 class AttribsController < ApplicationController
 
+  def match
+    attrs = Attrib.attribute_names.map{|a|a.to_sym}
+    objs = Attrib.where(params.permit(attrs))
+    respond_to do |format|
+      format.html {}
+      format.json { render api_index :attrib, objs.as_json }
+    end
+  end
+
   def index
     target = find_target
     @list = target.nil? ? Attrib.all : target.attribs
+    @list = @list.map do |i|
+      e = i.as_json
+      e["value"] = i.get(target)
+      e
+    end if target
     respond_to do |format|
       format.html { }
       format.json { render api_index :attrib, @list }
@@ -26,6 +40,7 @@ class AttribsController < ApplicationController
 
   def show
     target = find_target
+    bucket = params[:bucket] ? params[:bucket].to_sym : :all
     @attrib = Attrib.find_key params[:id]
     if target.nil?
       respond_to do |format|
@@ -34,7 +49,7 @@ class AttribsController < ApplicationController
       end
     else
       ret = @attrib.as_json
-      ret["value"] = @attrib.get(target)
+      ret["value"] = @attrib.get(target,bucket)
       respond_to do |format|
         format.html { }
         format.json { render json: ret, content_type: cb_content_type(@attrib, "obj") }
@@ -68,10 +83,15 @@ class AttribsController < ApplicationController
       return
     end
     # unpack form updates
+    bucket = params[:bucket] ? params[:bucket].to_sym : :user
+    if bucket != :user && bucket != :note
+      render api_not_supported 'put', 'attribs/:id'
+      return
+    end
     params[:value] = params[:attrib][:value] if params[:attrib]
     params.require(:value)
     attrib = Attrib.find_key(params[:id])
-    target.attribs.find(attrib.id).set(target,params[:value], :user)
+    target.attribs.find(attrib.id).set(target,params[:value], bucket)
     ret = attrib.as_json
     ret["value"] = params[:value]
     render json: ret, content_type: cb_content_type(attrib, "obj")

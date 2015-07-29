@@ -19,6 +19,7 @@ require 'net/http'
 require 'net/http/digest_auth'
 require 'uri'
 require 'json'
+require 'yaml'
 require 'getoptlong'
 
 # Whether or not we will spit out debugging information.
@@ -157,7 +158,11 @@ class REST
 
   # Common data and debug handling.
   def self.go(verb,path,data=nil)
-    uri = URI.parse("http://#{$hostname}:#{$port}/#{path}" )
+    if $url
+      uri = URI.parse("#{$url}/#{path}" )
+    else
+      uri = URI.parse("http://#{$hostname}:#{$port}/#{path}" )
+    end
     # We want to give valid JSON to the API, so if we were
     # handed an array or a hash as the data to be messed with,
     # turn it into a blob of JSON.
@@ -375,6 +380,12 @@ class CrowbarProxy
     self.new(obj)
   end
 
+  def self.match_Json(data, *rest)
+    objs, res = REST.post("#{path}/match",data)
+    maybe_json_die(objs,res)
+    objs.map{|o| self.new(o)}
+  end
+
   # Spit out basic help for CRUD operations on this thing.
   def self.help
     STDERR.puts "Commands for #{apiname}:"
@@ -388,6 +399,7 @@ class CrowbarProxy
   def self.commands
     res = []
     res << Command.new(self.method(:list),self)
+    res << Command.new(self.method(:match_Json),self)
     res << Command.new(self.method(:create_Json),self)
     res << Command.new(self.method(:help),self)
     # We generate commands for any instance methods that start with do_
@@ -509,6 +521,12 @@ module OpenCrowbar
       obj
     end
 
+    def do_poweractions(*rest)
+      obj, res = REST.get("#{self.class.path}/#{id}/power")
+      maybe_json_die(obj, res)
+      obj
+    end
+
     def do_debug(*rest)
       obj, res = REST.put("#{self.class.path}/#{id}/debug")
       maybe_json_die(obj,res)
@@ -543,6 +561,12 @@ module OpenCrowbar
       objs.map{|o|NodeRole.new(o)}
     end
 
+    def do_alladdresses(*rest)
+      objs,res = REST.get("#{self.class.path}/#{id}/addresses")
+      maybe_json_die(objs,res)
+      objs
+    end
+
     def do_addresses_on_Network(network,*rest)
       objs,res = REST.get("#{self.class.path}/#{id}/addresses?network=#{network.id}")
       maybe_json_die(objs,res)
@@ -552,6 +576,13 @@ module OpenCrowbar
     def do_move_to_Deployment(deploy,*rest)
       do_update_Json({"deployment_id" => deploy.id})
     end
+
+    def do_bind_to_Role(role, *rest)
+      obj,res = REST.post(NodeRole.path,JSON.generate({:node_id => id, :role_id => role.id}))
+      maybe_json_die(obj,res)
+      NodeRole.new(obj)
+    end
+
   end
 
   class Deployment < ProxyWithAttribs
@@ -570,6 +601,18 @@ module OpenCrowbar
       objs,res = REST.get("#{self.class.path}/#{id}/nodes")
       maybe_json_die(objs,res)
       objs.map{|o|Node.new(o)}
+    end
+
+    def do_bind_to_Role(role, *rest)
+      new_dr = JSON.generate({:deployment_id => id, :role_id => role.id})
+      obj,res = REST.post(DeploymentRole.path, new_dr)
+      maybe_json_die(obj,res)
+      DeploymentRole.new(obj)
+    end
+
+    def do_inventory(*rest)
+      obj,res = REST.get("api/status/inventory/#{id.to_s}")
+      obj
     end
 
   end
@@ -616,6 +659,18 @@ module OpenCrowbar
 
   end
 
+  class DnsNameFilter < CrowbarProxy
+    def self.path
+      "api/v2/dns_name_filters"
+    end
+  end
+
+  class DnsNameEntry < CrowbarProxy
+    def self.path
+      "api/v2/dns_name_entries"
+    end
+  end
+
   class Hammer < CrowbarProxy
     def self.path
       "api/v2/hammers"
@@ -635,9 +690,47 @@ module OpenCrowbar
     end
   end
 
-  class Barclamp < CrowbarProxy; end
-  
-  class User < ProxyWithAttribs
+  class Barclamp < CrowbarProxy
+
+    def self.install_String(path)
+      if path.split("/")[-1] == "crowbar.yml"
+        yml = path
+        path = File.join(*path.split("/")[0..-2])
+      else
+        yml = File.join(path,"crowbar.yml")
+      end
+      raise "No crowbar.yml at #{path}" unless File.exists?(yml)
+      settings = YAML.load_file(yml)
+      settings['barclamp']['source_path'] = File.realpath(path)
+      return {} if settings['barclamp']['parent']
+      bc, res = REST.get("#{self.path}/#{settings['barclamp']['name']}")
+      if res >= 400
+        bc = create_Json({'value' => settings})
+      else
+        Barclamp.new(bc).do_update_Json({'value' => settings})
+      end
+      # Load child barclamps
+      Dir.glob(File.join(path,"barclamps","*.yml")).each do |child_yml|
+        settings = YAML.load_file(child_yml)
+        settings['barclamp']['source_path'] = path
+        child, res = REST.get("#{self.path}/#{settings['barclamp']['name']}")
+        if res >= 400
+          create_Json({'value' => settings})
+        else
+          Barclamp.new(child).do_update_Json({'value' => settings})
+        end
+      end
+      bc
+    end
+
+    def self.commands
+      res = super
+      res << Command.new(self.method(:install_String),self)
+    end
+  end
+
+
+  class User < CrowbarProxy
 
     def self.path
       "api/v2/users"
@@ -655,15 +748,72 @@ module OpenCrowbar
     end
 
   end
-  
+
   class Attrib < CrowbarProxy; end
 
   class Jig < CrowbarProxy; end
+
+  class NetworkRange < CrowbarProxy
+
+    def self.path
+      "api/v2/network_ranges"
+    end
+
+  end
+
+  class NetworkAllocation < CrowbarProxy
+
+    def self.path
+      "api/v2/network_allocations"
+    end
+
+  end
 
   class Network < CrowbarProxy
     def self.path
       "api/v2/networks"
     end
+
+    def do_router_Json(data)
+      obj, res = REST.post("#{self.class.path}/#{id}/network_routers",data)
+      obj, res = REST.put("#{self.class.path}/#{id}/network_routers/any",data) if res == 409
+      maybe_json_die(obj,res)
+      obj
+    end
+
+    def do_routershow
+      obj, res = REST.get("#{self.class.path}/#{id}/network_routers/any")
+      maybe_json_die(obj,res)
+      obj
+    end
+
+    def do_routerdestroy()
+      obj, res = REST.delete("#{self.class.path}/#{id}/network_routers/any")
+      maybe_json_die(obj,res)
+      obj
+    end
+
+    def do_add_to_Node(node)
+      data = {:node_id => node.id, :network_id => self.id}
+      obj, res = REST.post(NetworkAllocation.path,data)
+      maybe_json_die(obj,res)
+      obj
+    end
+
+    def do_alloc_on_Node_from_String(node,range)
+      data = {:node_id => node.id, :range => range}
+      obj, res = REST.post("#{self.class.path}/#{id}/ip",data)
+      maybe_json_die(obj,res)
+      obj
+    end
+
+    def do_dealloc_from_Node_address_String(node,cidr)
+      data = {:node_id => node.id, :cidr => cidr}
+      obj, res = REST.delete("#{self.class.path}/#{id}/ip",data)
+      maybe_json_die(obj,res)
+      obj
+    end
+
   end
 end
 
@@ -841,7 +991,7 @@ def run_command
   res = command.run(*(params + rest))
   exit(0) if command.cmd[-1] == "help"
   # We will blow up if we get back non-JSON errors, but that is OK for now.
-  puts JSON.pretty_generate(res.is_a?(Array) ? res.map{|a|a.to_hash} : res.to_hash)
+  puts JSON.pretty_generate(res.is_a?(Array) ? res.map{|a|a.is_a?(CrowbarProxy)? a.to_hash : a } : res.to_hash)
 end
 
 run_command

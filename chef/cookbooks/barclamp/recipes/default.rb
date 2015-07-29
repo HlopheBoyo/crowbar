@@ -16,3 +16,19 @@
 class Chef::Recipe
   include ::BarclampLibrary
 end
+
+Disk.update(node)
+Nic.update(node)
+
+directory "/etc/sudoers.d" do
+  action :create
+  mode "0750"
+end
+
+file "/etc/sudoers.d/00_root_no_tty" do
+  action :create
+  mode "0440"
+  content <<EOC
+Defaults:root !requiretty\n
+EOC
+end

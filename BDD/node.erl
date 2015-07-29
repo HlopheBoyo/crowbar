@@ -48,7 +48,6 @@ validate(JSON) when is_record(JSON, obj) ->
       bdd_utils:is_a(J, string, hint),
       bdd_utils:is_a(J, dbid, deployment_id),
       bdd_utils:is_a(J, dbid, target_role_id),
-      bdd_utils:is_a(J, string, alias),
       bdd_utils:is_a(J, integer, order),
       crowbar_rest:validate(J)],
   bdd_utils:assert(R).

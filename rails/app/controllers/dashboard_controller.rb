@@ -21,20 +21,25 @@ class DashboardController < ApplicationController
     @layers = {}
     @status = {}
     taxmap["layers"].each { |k| @layers[k]=[] }
-    NodeRole.all.each do |nr|
-      layer = taxmap[nr.role.name] || 'apps'
+    NodeRole.all.joins(:node,:role).select("node_roles.*,
+                                      roles.name as role_name,
+                                      nodes.name as node_name,
+                                      nodes.alive as node_alive,
+                                      nodes.available as node_available").each do |nr|
+      layer = taxmap[nr.role_name] || 'apps'
       @layers[layer] << nr 
       if nr.state == NodeRole::ERROR
         @status[layer] = 'alert'
       elsif (nr.state == NodeRole::PROPOSED)
-        @status[layer] = 'user'
+        @status[layer] = 'user' unless @status[layer] == 'alert'
       elsif nr.state != NodeRole::ACTIVE
-        @status[layer] = 'system'
+        @status[layer] = 'system' unless @status[layer] == 'alert'
       end
     end
 
     respond_to do |format|
       format.html { }
+      format.json { render :json => @status.to_json } # also respond to json for layercake ajax updating
     end
   end    
 
@@ -51,7 +56,7 @@ class DashboardController < ApplicationController
         node.group=group
       end
       node.save
-      Rails.logger.info "node #{node.name} (#{node.alias}) changed its group to be #{node.group.empty? ? 'automatic' : group}."
+      Rails.logger.info "node #{node.name} changed its group to be #{node.group.empty? ? 'automatic' : group}."
       render :inline => "SUCCESS: added #{node.name} to #{group}.", :cache => false 
     end
   end
@@ -76,10 +81,10 @@ class DashboardController < ApplicationController
         node = Node.find_key node_name
         begin
           node.update_attributes! values
-          succeeded << node.alias
-        rescue Exception=>e
+          succeeded << node.name
+        rescue StandardError=>e
           Rails.logger.info "user attempted dashboard.list put for node #{node.name} raised error #{e.message}"
-          failed << node.alias
+          failed << node.name
         end
       end
       if failed.length>0
@@ -96,12 +101,23 @@ class DashboardController < ApplicationController
     end
   end
 
+  # group nodes into categories
   def families
-    @families = {}
+
+    # the attribs list is passed as the ID w/ pipe delimiters
+    @families = if params[:id]
+      params[:id].split "|"
+    else
+      ['cpu_count', 'memory',  'number_of_drives']
+    end
+    @nodes = {}
+    # this works by building a single key with all the requested attributes in order
+    # that makes it easy to sort and collect like attributes
     Node.all.each do |n|
-      f = n.family.to_s  
-      @families[f] = {:names=>[], :family=>n.family} unless @families.has_key? f
-      @families[f][:names] << {:alias=>n.alias, :description=>n.description, :handle=>n.name}
+      next if n.system
+      key = @families.map { |f| (n.get_attrib(f) || t("unknown")).to_s }
+      @nodes[key] ||= {}
+      @nodes[key][n.id] = n.name
     end
   end
 

@@ -15,6 +15,15 @@
 
 class NodeRolesController < ApplicationController
 
+  def match
+    attrs = NodeRole.attribute_names.map{|a|a.to_sym}
+    objs = NodeRole.where(params.permit(attrs))
+    respond_to do |format|
+      format.html {}
+      format.json { render api_index NodeRole, objs }
+    end
+  end
+  
   def index
     @list = (if params.key? :node_id
               Node.find_key(params[:node_id]).node_roles
@@ -60,9 +69,15 @@ class NodeRolesController < ApplicationController
     node = Node.find_key(params[:node] || params[:node_id])
     role = Role.find_key(params[:role] || params[:role_id] || nr_roles)
     depl ||= node.deployment
-    @node_role = NodeRole.safe_create!(role_id: role.id,
-                                       node_id: node.id,
-                                       deployment_id: depl.id)
+    begin
+      @node_role = NodeRole.safe_create!(role_id: role.id,
+                                         node_id: node.id,
+                                         deployment_id: depl.id)
+    rescue StandardError => e
+      Rails.logger.fatal("Exception on safe_create!: #{e.message}")
+      Rails.logger.fatal(e.backtrace)
+      raise e
+    end
     if params[:data]
       @node_role.data = params[:data]
       @node_role.save!
@@ -71,7 +86,7 @@ class NodeRolesController < ApplicationController
       format.html { redirect_to deployment_path(depl.id) }
       format.json { render api_show @node_role }
     end
-    
+
   end
 
   def update
@@ -103,10 +118,11 @@ class NodeRolesController < ApplicationController
   end
 
   def destroy
-    unless Rails.env.development?
-      render  api_not_supported("delete", "node_role")
-    else
-      render api_delete NodeRole
+    @node_role = NodeRole.find_key (params[:id] || params[:node_role_id])
+    @node_role.destroy
+    respond_to do |format|
+      format.html { redirect_to deployment_path(@node_role.deployment_id) }
+      format.json { render api_delete @node_role }
     end
   end
 
@@ -128,7 +144,6 @@ class NodeRolesController < ApplicationController
     end
   end
 
-
   def retry
     params[:id] ||= params[:node_role_id]
     @node_role = NodeRole.find_key params[:id]
@@ -137,7 +152,6 @@ class NodeRolesController < ApplicationController
       format.html { redirect_to node_role_path(@node_role.id) }
       format.json { render api_show @node_role }
     end
-
   end
 
   def anneal

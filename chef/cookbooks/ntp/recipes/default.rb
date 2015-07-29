@@ -24,10 +24,12 @@ else
 end
 
 user "ntp"
+
 template "/etc/ntp.conf" do
   owner "root"
   group "root"
   mode 0644
+  force_unlink true
   source "ntp.conf.erb"
   variables(:ntp_servers => ntp_servers)
   notifies :restart, "service[ntp]"
@@ -42,11 +44,15 @@ file "/etc/network/if-up.d/ntpdate" do
 end if ::File.exists?("/etc/network/if-up.d/ntpdate")
 
 service "ntp" do
-  service_name "ntpd" if node[:platform] =~ /^(centos|redhat|fedora)$/
+  service_name "ntpd" if node[:platform] =~ /^(coreos|centos|redhat|fedora)$/
   supports :restart => true, :status => true, :reload => true
   running true
   enabled true
   action [ :enable, :start ]
+  # Sigh, ubuntu 15.04 and its 'not really systemd' use of systemd
+  ignore_failure true if node[:platform] == "ubuntu" &&
+                         File.directory?("/etc/systemd/system") &&
+                         !File.exists?("/usr/lib/systemd/system/ntpd.service")
 end
 
 if node["roles"].include?("ntp-server")
@@ -55,10 +61,13 @@ if node["roles"].include?("ntp-server")
     action :nothing
   end
 
+ ip_addr = IP.coerce(node["ntp"]["service_address"]).addr
+
   template "/etc/consul.d/crowbar-ntp.json" do
     source "consul-ntp-server.json.erb"
     mode 0644
     owner "root"
+    variables(:ip_addr => ip_addr)
     notifies :run, "bash[reload consul ntp]", :immediately
   end
 end

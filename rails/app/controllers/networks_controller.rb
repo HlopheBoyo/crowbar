@@ -16,6 +16,16 @@ class NetworksController < ::ApplicationController
   respond_to :html, :json
 
   add_help(:show,[:network_id],[:get])
+
+  def match
+    attrs = Network.attribute_names.map{|a|a.to_sym}
+    objs = Network.where(params.permit(attrs))
+    respond_to do |format|
+      format.html {}
+      format.json { render api_index Network, objs }
+    end
+  end
+
   def show
     @network = Network.find_key params[:id]
     respond_to do |format|
@@ -25,7 +35,11 @@ class NetworksController < ::ApplicationController
   end
 
   def index
-    @networks = Network.all
+    if (params[:category])
+      @networks = Network.in_category(params[:category])
+    else
+      @networks = Network.all
+    end
     respond_to do |format|
       format.html {}
       format.json { render api_index Network, @networks }
@@ -37,12 +51,11 @@ class NetworksController < ::ApplicationController
     # cleanup inputs
     params[:use_vlan] = true if params[:vlan].to_int > 0 rescue false
     params[:vlan] ||= 0
-    params[:use_team] = true if params[:team].to_int > 0 rescue false
+    params[:use_team] = true if params[:team_mode].to_int > 0 rescue false
     params[:team_mode] ||= 5
-    params[:use_bridge] = true
+    params[:configure] = true unless params.key?(:configure)
     params[:deployment_id] = Deployment.find_key(params[:deployment]).id if params.has_key? :deployment
     params[:deployment_id] ||= 1
-    params[:v6prefix] ||= Network::V6AUTO
     params.require(:name)
     params.require(:conduit)
     params.require(:deployment_id)
@@ -54,6 +67,10 @@ class NetworksController < ::ApplicationController
                                                :use_vlan,
                                                :use_bridge,
                                                :team_mode,
+                                               :configure,
+                                               :pbr,
+                                               :category,
+                                               :group,
                                                :use_team,
                                                :v6prefix)
       # make it easier to batch create ranges with a network
@@ -61,6 +78,7 @@ class NetworksController < ::ApplicationController
         ranges = params[:ranges].is_a?(String) ? JSON.parse(params[:ranges]) : params[:ranges]
         ranges.each do |range|
           range[:network_id] = @network.id
+          range[:overlap] = false unless range.key?(:overlap)
           range_params = ActionController::Parameters.new(range)
           range_params.require(:name)
           range_params.require(:network_id)
@@ -72,6 +90,8 @@ class NetworksController < ::ApplicationController
                                                    :last,
                                                    :conduit,
                                                    :vlan,
+                                                   :team_mode,
+                                                   :overlap,
                                                    :use_vlan,
                                                    :use_bridge,
                                                    :use_team)
@@ -101,7 +121,7 @@ class NetworksController < ::ApplicationController
 
   def map
     @networks = Network.all
-    @nodes = Node.all
+    @nodes = Node.non_system.sort
   end
 
   # Allocations for a node in a network.
@@ -117,13 +137,14 @@ class NetworksController < ::ApplicationController
     end
     render :json => network.node_allocations(node).map{|a|a.to_s}, :content_type=>cb_content_type(:allocations, "array")
   end
-  
-  add_help(:update,[:id, :conduit,:team_mode, :use_team, :vlan, :use_vlan],[:put])
+
+  add_help(:update,[:id, :conduit, :team_mode, :use_team, :vlan, :use_vlan, :configure],[:put])
   def update
     @network = Network.find_key(params[:id])
     # Sorry, but no changing of the admin conduit for now.
     params.delete(:conduit) if @network.name == "admin"
-    @network.update_attributes!(params.permit(:description, :vlan, :use_vlan, :use_bridge, :team_mode, :use_team, :conduit, :deployment_id))
+    params.delete(:v6prefix) if params[:v6prefix] == ""
+    @network.update_attributes!(params.permit(:description, :vlan, :use_vlan, :v6prefix, :use_bridge, :team_mode, :use_team, :conduit, :configure, :pbr, :category, :group, :deployment_id))
     respond_to do |format|
       format.html { render :action=>:show }
       format.json { render api_show @network }
@@ -138,33 +159,38 @@ class NetworksController < ::ApplicationController
   end
 
   def ip
-    if request.post?
+    if request.get?
+      allocations
+    elsif request.post?
       allocate_ip
     elsif request.delete?
       deallocate_ip
     end
   end
-      
+
   def allocate_ip
     network = Network.find_key(params[:id])
     node = Node.find_key(params[:node_id])
-    range = network.ranges.where(:name => params[:range]).first
-    suggestion = params[:suggestion]
-
-    ret = range.allocate(node,suggestion)
+    if ! params[:range]
+      ret = network.auto_allocate(node)
+    else
+      range = network.ranges.where(:name => params[:range]).first
+      suggestion = params[:suggestion]
+      ret = range.allocate(node,suggestion)
+    end
     render :json => ret
   end
 
   def deallocate_ip
     raise ArgumentError.new("Cannot deallocate addresses for now")
     node = Node.find_key(params[:node_id])
-    allocation = Allocation.where(:address => params[:cidr], :node_id => node.id)
+    allocation = NetworkAllocation.where(:address => params[:cidr], :node_id => node.id)
     allocation.destroy
   end
 
   def enable_interface
     raise ArgumentError.new("Cannot enable interfaces without IP address allocation for now.")
-    
+
     deployment_id = params[:deployment_id]
     deployment_id = nil if deployment_id == "-1"
     network_id = params[:id]

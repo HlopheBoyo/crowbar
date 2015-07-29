@@ -13,9 +13,8 @@
 # limitations under the License.
 #
 
-provisioner_web=node["crowbar"]["provisioner"]["server"]["webserver"]
-provisioner_addr=node["crowbar"]["provisioner"]["server"]["v6addr"]
-proxy=node["crowbar"]["provisioner"]["server"]["proxy"]
+api_server = node['crowbar']['api']['servers'].first['url']
+proxy = node['crowbar']['proxy']['servers'].first['url']
 tftproot = node["crowbar"]["provisioner"]["server"]["root"]
 node_dir="#{tftproot}/nodes"
 node.normal["crowbar_wall"] ||= Mash.new
@@ -23,7 +22,7 @@ node.normal["crowbar_wall"]["docker"] ||= Mash.new
 node.normal["crowbar_wall"]["docker"]["clients"] ||= Mash.new
 
 # Split out the v4 addresses
-v4dns, v6dns = node["crowbar"]["dns"]["nameservers"].collect{|a|IP.coerce(a)}.partition{|a|a.v4?}
+v4dns, v6dns = node["crowbar"]["dns"]["nameservers"].collect{|a|IP.coerce(a['address'])}.partition{|a|a.v4?}
 v4addresses = v4dns.collect{|a|a.addr}
 
 (node["crowbar"]["docker"]["clients"] || {} rescue {}).each do |name,info|
@@ -39,9 +38,10 @@ v4addresses = v4dns.collect{|a|a.addr}
               :image => info["image"],
               :dns_servers => v4addresses,
               :name => name,
-              :proxy => node["crowbar"]["provisioner"]["server"]["proxy"],
-              :keys => (node["crowbar"]["provisioner"]["server"]["access_keys"] rescue Hash.new).values.sort.join($/),
-              :admin_url => "http://[#{provisioner_addr}]:3000"
+              :proxy => proxy,
+              :keys => (node["crowbar"]["access_keys"] rescue Hash.new).values.sort.join($/),
+              :machine_key => node["crowbar"]["machine_key"],
+              :admin_url => api_server
               )
   end
 end

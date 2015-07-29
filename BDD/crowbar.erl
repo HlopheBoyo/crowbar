@@ -14,7 +14,7 @@
 % 
 % 
 -module(crowbar).
--export([step/2, g/1, state/1, i18n/1, i18n/2, i18n/3, i18n/4, i18n/5, i18n/6, json/1, json/3, parse_object/1, worker/0]).
+-export([step/2, g/1, state/1, i18n/1, i18n/2, i18n/3, i18n/4, i18n/5, i18n/6, json/1, json/3, parse_object/1]).
 -export([json_build/1]).
 -include("bdd.hrl").
 
@@ -122,33 +122,24 @@ wait_for(URL, MatchCode, MatchData, Times, Sleep) ->
                   wait_for(URL, MatchCode, MatchData, Times-1, Sleep)
   end.
 
-worker() ->
-  URL = eurl:uri(g(queue_status)),
-  R = eurl:get_http(URL),
-  case R#http.code of
-    200 -> J = json:parse(R#http.data), list_to_integer(json:value(J,"workers")) > 0;
-    _ -> false
-  end.
-
 % global setup
 step(_Global, {step_setup, {_Scenario, _N}, Test}) -> 
   % setup the groups object override
   bdd_utils:log(debug, crowbar, step, "Global Setup alias: ~p",[get({scenario,alias_map})]),
   bdd_utils:alias(group, group_cb),
   bdd_utils:alias(user, user_cb),
-  bdd_utils:alias(networkrange, range),
+  bdd_utils:alias(network_range, range),
+  bdd_utils:alias(network_router, router),
   % before we do anything else, we need to create some consul services
-  Services = bdd_utils:config(services, ["dns-service", "ntp-service"]),
-  [true,true] = [consul:reg_serv(S) || S <- Services],
+  Services = bdd_utils:config(services, ["dns-service", "ntp-service", "proxy-service", "provisioner-service", "crowbar-api-service", "crowbar-job-runner-service"]),
+  [true,true,true,true,true,true] = [consul:reg_serv(S) || S <- Services],
   bdd_utils:log(info, crowbar, global_setup, "Consul Registered ~p",[Services]),
-  % make sure there's a worker
-  true = worker(),
   % skip some activity if we're logging at debug level
   case lists:member(debug,get(log)) of
     true -> bdd_utils:log(debug, crowbar, global_setup, "Skipping Setup Queue Empty, Make Admin Net & Test Attribs",[]);
     _ ->
       % make sure that the delayed job queues are running
-      crowbar:step([], {foo, {0,0}, ["process", "delayed","returns", "delayed_job.([0..9])"]}),
+      %crowbar:step([], {foo, {0,0}, ["process", "delayed","returns", "delayed_job.([0..9])"]}),
       % turn off the delays in the test jig
       %role:step(Global, {step_given, {Scenario, _N}, ["I set the",role, "test-admin", "property", "test", "to", "false"]}), 
       %role:step(Global, {step_given, {Scenario, _N}, ["I set the",role, "test-server", "property", "test", "to", "false"]}), 
@@ -158,33 +149,28 @@ step(_Global, {step_setup, {_Scenario, _N}, Test}) ->
       % create admin network
       network:make_admin()
   end,
-  % create node for testing
-  bdd_utils:log(debug, crowbar, global_setup, "Global Setup running (creating node ~p)",[g(node_name)]),
-  node:add_node(g(node_name), "crowbar-admin-node", [{description, Test ++ g(description)}, {order, 100}, {admin, "true"}], g(node_atom)),
   % setup phantom node roles
   bdd_utils:log(debug, crowbar, global_setup, "Adding Service Roles", []),
   Phantom = bdd_utils:config(system_phantom,"system-phantom.internal.local"),
-  PhantomRoles = bdd_utils:config(system_phantom_roles, ["dns-service", "ntp-service","dns-mgmt_service"]),
+  PhantomRoles = bdd_utils:config(system_phantom_roles, ["dns-service", "ntp-service", "proxy-service", "provisioner-service", "dns-mgmt_service", "crowbar-api_service", "crowbar-job_runner_service"]),
   ServiceNRs = eurl:path([node:g(path), Phantom, "node_roles"]),
   R = eurl:get_http(ServiceNRs),
   O = bdd_restrat:get_object(R),
   bdd_utils:log(debug, crowbar, global_setup, "Checking for Phantom Node Roles ~p",[O#list.count]),
   case O#list.count of
-    1 -> Attribs = ["chef-server_port", "chef-server_protocol"],
-          JSON = [crowbar:json([{name, A}, {description, g(description)}, {barclamp, 'test'}, {order, g(order)}, {writable, true}]) || A <- Attribs],
-          bdd_utils:log(info, crowbar, global_setup, "Creating Attribs ~p",[Attribs]),
-          [bdd_restrat:create(attrib:g(path), J, attrib, 0) || J <- JSON],
-          [node:bind(Phantom,PR) || PR <- PhantomRoles],
+    1 ->  [node:bind(Phantom,PR) || PR <- PhantomRoles],
           bdd_utils:log(info, crowbar, global_setup, "Bound Roles ~p to Phantom ~p",[PhantomRoles, Phantom]),
           node:commit(Phantom),
           node:alive(Phantom);
     _  -> noop 
   end,
+  % create node for testing
+  bdd_utils:log(debug, crowbar, global_setup, "Global Setup running (creating node ~p)",[g(node_name)]),
+  node:add_node(g(node_name), "crowbar-admin-node", [{description, Test ++ g(description)}, {order, 100}, {admin, "true"}, {ip, "192.168.124.10/24"}], g(node_atom)),
   true;
 
 % find the node from setup and remove it
 step(_Global, {step_teardown, {_Scenario, _N}, _}) -> 
-  worker(),
   bdd_utils:log(debug, crowbar, step, "Global Teardown running",[]),
   % skip some activity if we're logging at debug level
   case lists:member(debug,get(log)) of
@@ -245,6 +231,8 @@ step(_Global, {step_given, {_Scenario, _N}, ["test loads the",File,"data into",n
 
 % ============================  WHEN STEPS =========================================
 
+step(Given, {step_given, {Scenario, N}, ["I add",node, Node,"to",deployment, Deployment,"in",role,Role]}) -> 
+  step(Given, {step_when, {Scenario, N}, ["I add",node, Node,"to",deployment, Deployment,"in",role,Role]});
 step(_Given, {step_when, {_Scenario, _N}, ["I add",node, Node,"to",deployment, Deployment,"in",role,Role]}) -> 
   node_role:bind(Node, Role, Deployment);
 
@@ -305,12 +293,6 @@ step(_Result, {step_then, {_Scenario, _N}, [node, Node, "should be in state", St
   Status =:= State;
 
 % ============================  CLEANUP =============================================
-
-step(_, {_Any, {_Scenario, _N}, ["process", PS, "returns", Test]}) ->
-  case worker() of
-    true -> true;
-    _ -> bdd_clirat:step([], {_Any, {_Scenario, _N}, ["process", PS,"returns", Test]}), false
-  end;
 
 step(_, {_, {_Scenario, _N}, ["there are no pending Crowbar runs for",node,Node]}) -> 
   timer:sleep(250),   % we want a little pause to allow for settling

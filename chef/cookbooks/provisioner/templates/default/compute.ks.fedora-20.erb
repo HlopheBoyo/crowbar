@@ -18,14 +18,14 @@ rootpw --iscrypted <%= node[:crowbar][:provisioner][:server][:default_password_h
 firewall --disabled
 authconfig --enableshadow --enablemd5
 selinux --disabled
-bootloader --location=mbr --driveorder=sda --append="rhgb quiet"
+bootloader --location=mbr --driveorder=<%= @rootdev %> --append="rhgb quiet"
 zerombr
-ignoredisk --only-use=sda
-clearpart --all --drives=sda
-part /boot --fstype ext4 --size=512 --ondisk=sda
-part /boot/efi --fstype vfat --size=512 --ondisk=sda
+ignoredisk --only-use=<%= @rootdev %>
+clearpart --all --drives=<%= @rootdev %>
+part /boot --fstype ext4 --size=512 --ondisk=<%= @rootdev %>
+part /boot/efi --fstype vfat --size=512 --ondisk=<%= @rootdev %>
 part swap --recommended
-part pv.6 --size=1 --grow --ondisk=sda
+part pv.6 --size=1 --grow --ondisk=<%= @rootdev %>
 volgroup <%=@name.split('.')[0]%> --pesize=32768 pv.6
 logvol / --fstype ext4 --name=lv_root --vgname=<%=@name.split('.')[0]%> --size=1 --grow
 text
@@ -33,17 +33,13 @@ reboot
 
 %packages
 @core
-vim-enhanced
-keyutils
 trousers
 fipscheck
 device-mapper-multipath
 openssh
 curl.x86_64
-tcpdump
 efibootmgr
 tar
-psmisc
 %end
 
 %post
@@ -115,7 +111,7 @@ EOF
 <% end -%>
 
 # Install ntpdate
-yum -y install ntpdate
+yum -y install ntpdate jq
 
 # Make sure we can install gems
 cat >/etc/gemrc <<EOF
@@ -133,7 +129,7 @@ rsyslog_dir="/etc/rsyslog.d"
 mkdir -p "$rsyslog_dir"
 echo '$IncludeConfig /etc/rsyslog.d/*.conf' >>/etc/rsyslog.conf
 if [ ! -f "$rsyslog_dir/10-crowbar-client.conf" ]; then
-    echo "*.* @@$<%= @admin_ip %>" > "$rsyslog_dir/10-crowbar-client.conf"
+    echo "*.* @@$<%= @logging_server %>" > "$rsyslog_dir/10-crowbar-client.conf"
     if ! curl -f -s -o "$rsyslog_dir/00-crowbar-debug.conf" \
         <%= @provisioner_web %>/rsyslog.d/00-crowbar-debug.conf
     then
@@ -171,8 +167,13 @@ EOF
 
 systemctl enable crowbar
 
+# The network barclamp is in charge of doing horrible things
+# to the network, not NetworkManager
+chkconfig NetworkManager off || :
+chkconfig network on || :
+
 curl -u "$CROWBAR_KEY" --digest -L -X PUT -d "bootenv=local" \
-    "http://<%=@admin_ip%>:3000/api/v2/nodes/$HOSTNAME"
+    "<%=@api_server%>/api/v2/nodes/$HOSTNAME"
 
 # Wait for the provisioner to change the bootenv
 while true; do

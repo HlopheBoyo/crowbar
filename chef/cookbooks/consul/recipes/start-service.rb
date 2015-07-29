@@ -17,63 +17,25 @@
 
 require 'json'
 
-# Configure directories
-consul_directories = []
-consul_directories << node[:consul][:config_dir]
-consul_directories << '/var/lib/consul'
-
-# Select service user & group
-case node[:consul][:init_style]
-when 'runit'
-  consul_user = node[:consul][:service_user]
-  consul_group = node[:consul][:service_group]
-  consul_directories << '/var/log/consul'
-else
-  consul_user = 'root'
-  consul_group = 'root'
-end
-
-# Create service user
-user "consul service user: #{consul_user}" do
-  not_if { consul_user == 'root' }
-  username consul_user
-  home '/dev/null'
-  shell '/bin/false'
-  comment 'consul service user'
-end
-
-# Create service group
-group "consul service group: #{consul_group}" do
-  not_if { consul_group == 'root' }
-  group_name consul_group
-  members consul_user
-  append true
-end
-
-# Create service directories
-consul_directories.each do |dirname|
-  directory dirname do
-    owner consul_user
-    group consul_group
-    mode 0755
-  end
-end
-
 # Determine service params
 service_config = {}
 service_config['data_dir'] = node[:consul][:data_dir]
 
+copy_params = [
+  :bind_addr, :datacenter, :domain, :log_level, :node_name, :advertise_addr,
+  :acl_datacenter, :acl_master_token, :acl_default_policy, :acl_down_policy,
+  :encrypt, :disable_remote_exec
+]
+
 case node[:consul][:service_mode]
-when 'bootstrap'
-  service_config['server'] = true
-  service_config['bootstrap'] = true
 when 'server'
+  copy_params << :bootstrap_expect
   service_config['server'] = true
-  service_config['start_join'] = node[:consul][:servers]
+  service_config['retry_join'] = node[:consul][:servers]
 when 'client'
-  service_config['start_join'] = node[:consul][:servers]
+  service_config['retry_join'] = node[:consul][:servers]
 else
-  Chef::Application.fatal! 'node[:consul][:service_mode] must be "bootstrap", "server", or "client"'
+  Chef::Application.fatal! 'node[:consul][:service_mode] must be "server" or "client"'
 end
 
 if node[:consul][:serve_ui]
@@ -81,19 +43,30 @@ if node[:consul][:serve_ui]
   service_config[:client_addr] = node[:consul][:client_addr]
 end
 
-copy_params = [
-  :bind_addr, :datacenter, :domain, :log_level, :node_name, :advertise_addr
-]
 copy_params.each do |key|
   if node[:consul][key]
     service_config[key] = node[:consul][key]
   end
 end
 
+# Check if we are running and our bind address changed.
+bind_addr=%x{consul members | grep `hostname` | awk '{ print $2 }'}
+if bind_addr && bind_addr != ""
+  # bind_addr is ip:port where ip is either v4:port or [ipv6]:port
+  # We need to chop off the port and the [] if there.
+  bind_addr = bind_addr[0..(bind_addr.rindex(':')-1)]
+  bind_addr = bind_addr[1..-2] if bind_addr[0] == '['
+
+  if bind_addr != node[:consul][:bind_addr]
+    bash 'leave cluster to rebind' do
+      code "#{node[:consul][:install_dir]}/consul leave"
+      only_if "#{node[:consul][:install_dir]}/consul info"
+    end
+  end
+end
+
 file node[:consul][:config_dir] + '/default.json' do
-  user consul_user
-  group consul_group
-  mode 0600
+  mode 0640
   action :create
   content JSON.pretty_generate(service_config, quirks_mode: true)
 end
@@ -111,5 +84,26 @@ end
 service 'consul' do
   supports status: true, restart: true, reload: true
   action [:enable, :start]
-  subscribes :restart, "file[#{node[:consul][:config_dir]}/default.json]", :delayed
+  subscribes :restart, "file[#{node[:consul][:config_dir]}/default.json]"
+end
+
+# Wait for consul leader to emerge.
+ruby_block "wait for consul leader" do
+  block do
+    answer = ""
+    count = 0
+    # We need consul to converge on a leader.
+    # This can take a little time, so we ask for
+    # leader status.  The leader status returns
+    # nothing, a string that says no leader, or
+    # the leader IP:port pair.  The default port
+    # is 8300 for server communication.
+    while !(answer =~ /:8300/) and count < 30
+      sleep 1
+      count += 1
+      answer = %x{curl http://localhost:8500/v1/status/leader}
+    end
+    (count >= 30 ? false : true)
+  end
+  action :run
 end

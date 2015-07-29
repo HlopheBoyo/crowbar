@@ -53,6 +53,8 @@ API callers use digest authentication for all requests. User accounts
 need to be specifically configured for API only access.  A user
 account with API access will still be able to log in normally.
 
+To get the digest, make a HEAD or GET request to /api/v2/digest
+
 #### Common API URL Patterns:
 
 OpenCrowbar uses a versioned URL pattern. By convention, resources
@@ -159,7 +161,6 @@ The following table should be populated for all API calls:
       "description":"example",
       "order":100,
       "admin":true,
-      "alias":"sim",
       "alive":true,
       "allocated":false,
       "available":true,
@@ -196,7 +197,6 @@ operating system installed.
 This will return:
     {
     "admin":false,
-    "alias":"newtest",
     "alive":false,
     "allocated":false,
     "available":false,
@@ -309,7 +309,6 @@ Returns:
 Returns:
 
     {
-      "alias": "d52-54-05-3f-00-00",
       "description": null,
       "target_role_id": null,
       "deployment_id": 2,

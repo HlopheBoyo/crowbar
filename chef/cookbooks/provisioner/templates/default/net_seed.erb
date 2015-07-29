@@ -1,7 +1,7 @@
 #### Contents of the preconfiguration file (for &releasename;)
 ### Localization
 # Locale sets language and country.
-d-i debian-installer/locale string en_US.utf8
+d-i debian-installer/locale string en_US.UTF-8
 
 # Keyboard selection.
 # Disable automatic (interactive) keymap detection.
@@ -13,7 +13,7 @@ d-i console-setup/layoutcode string us
 #d-i console-setup/variantcode string dvorak
 
 d-i keyboard-configuration/xkb-keymap select us
-d-i debian-installer/locale string en_US
+d-i debian-installer/locale string en_US.UTF-8
 d-i console-tools/archs select at
 d-i console-keymaps-at/keymap select American English
 d-i debian-installer/keymap string us
@@ -139,7 +139,7 @@ d-i clock-setup/ntp boolean false
 # be given in traditional non-devfs format.
 # Note: A disk must be specified, unless the system has only one disk.
 # For example, to use the first SCSI/SATA hard disk:
-d-i partman-auto/disk string /dev/sda
+d-i partman-auto/disk string /dev/<%= @rootdev %>
 # In addition, you'll need to specify the method to use.
 # The presently available methods are: "regular", "lvm" and "crypto"
 d-i partman-auto/method string lvm
@@ -340,6 +340,12 @@ d-i grub-installer/only_debian boolean true
 #d-i grub-installer/password-again password r00tme
 # or encrypted using an MD5 hash, see grub-md5-crypt(8).
 #d-i grub-installer/password-crypted password [MD5 hash]
+<% if @install_name !~ /^debian-[1-7]/ -%>
+# Have grub auto install to rootdev.
+d-i grub-installer/choose_bootdev select /dev/<%= @rootdev %>
+d-i grub-installer/bootdev string /dev/<%= @rootdev %>
+<% end -%>
+
 
 ### Finishing up the installation
 # During installations from serial console, the regular virtual consoles

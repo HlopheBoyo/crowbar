@@ -1,5 +1,9 @@
 #!/bin/bash
 
+if [[ -f /etc/os-release ]]; then
+  . /etc/os-release
+fi
+
 if ! which chef-client; then
     if [[ -f /etc/redhat-release || -f /etc/centos-release ]]; then
         yum -y makecache
@@ -25,10 +29,25 @@ EOF
         cd -
 
     elif [[ -d /etc/apt ]]; then
-        apt-get -y update
-        apt-get -y --force-yes install chef
+        cd /tmp
+        # Stick with 11.x for now.
+        curl -O http://opscode-omnibus-packages.s3.amazonaws.com/ubuntu/10.04/x86_64/chef_11.18.12-1_amd64.deb
+        dpkg -i chef_11.18.12-1_amd64.deb
     elif [[ -f /etc/SuSE-release ]]; then
         zypper install -y -l chef
+    elif [[ "x$NAME" == "xCoreOS" ]]; then
+        webserver=$(read_attribute "crowbar/provisioner/server/webservers/0/url")
+        if [[ ! $webserver ]]; then
+            echo "Cannot figure out the URL to poll to see if we are ready to reboot!"
+            exit 1
+        fi
+        mkdir -p /opt
+        cd /opt
+        wget --quiet "http://$webserver/files/coreos-chef.tgz"
+        tar -zxf coreos-chef.tgz
+        cd -
+        mkdir -p /etc/profile.d
+        echo 'export PATH="$PATH:/opt/chef/bin"' > /etc/profile.d/chef_path.sh
     else
         die "Staged on to unknown OS media!"
     fi

@@ -81,6 +81,8 @@ debs:
       - deb-src http://us.archive.ubuntu.com/ubuntu/ precise main restricted universe multiverse
       - deb http://us.archive.ubuntu.com/ubuntu/ precise-updates main restricted universe multiverse
       - deb-src http://us.archive.ubuntu.com/ubuntu/ precise-updates main restricted universe multiverse
+      - deb http://us.archive.ubuntu.com/ubuntu/ precise-backports main restricted universe multiverse
+      - deb-src http://us.archive.ubuntu.com/ubuntu/ precise-backports main restricted universe multiverse
       - deb http://archive.canonical.com/ubuntu precise partner
       - deb-src http://archive.canonical.com/ubuntu precise partner
       - deb http://extras.ubuntu.com/ubuntu precise main
@@ -100,6 +102,8 @@ debs:
       - deb-src http://us.archive.ubuntu.com/ubuntu/ precise main restricted universe multiverse
       - deb http://us.archive.ubuntu.com/ubuntu/ precise-updates main restricted universe multiverse
       - deb-src http://us.archive.ubuntu.com/ubuntu/ precise-updates main restricted universe multiverse
+      - deb http://us.archive.ubuntu.com/ubuntu/ precise-backports main restricted universe multiverse
+      - deb-src http://us.archive.ubuntu.com/ubuntu/ precise-backports main restricted universe multiverse
       - deb http://archive.canonical.com/ubuntu precise partner
       - deb-src http://archive.canonical.com/ubuntu precise partner
       - deb http://extras.ubuntu.com/ubuntu precise main
@@ -309,6 +313,7 @@ rpms:
       - ipmitool
       - swig
       - openwsman-devel
+      - bzip2
     pkgs:
       # openldap stuff
       - openldap
@@ -364,6 +369,7 @@ rpms:
       - ipmitool
       - swig
       - openwsman-devel
+      - bzip2
     pkgs:
       # openldap stuff
       - openldap
@@ -428,6 +434,7 @@ rpms:
       - git
       - mercurial
       - subversion
+      - bzip2
     pkgs:
       # openldap stuff
       - openldap
@@ -492,6 +499,7 @@ rpms:
       - git
       - mercurial
       - subversion
+      - bzip2
     pkgs:
       # openldap stuff
       - openldap
@@ -551,6 +559,7 @@ rpms:
       - perl-devel
       - perl-CPAN
       - perl-DBD-Pg
+      - bzip2
     pkgs:
       # openldap stuff
       - openldap
